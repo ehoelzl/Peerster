@@ -2,10 +2,8 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	. "github.com/ehoelzl/Peerster/types"
 )
-
 
 func main() {
 	uiPort := flag.String("UIPort", "8080", "port for the UI client (default \"8080\")")
@@ -15,8 +13,8 @@ func main() {
 	simple := flag.Bool("simple", false, "run gossiper in simple broadcast mode")
 
 	flag.Parse()
-	fmt.Printf("Starting Gossiper node %v:\n -UIPort: %v \n -GossipAddr: %v \n -Peers: %v \n -Simple: %v\n",
-		*name, *uiPort, *gossipAddr, *peers, *simple)
+	/*	fmt.Printf("Starting Gossiper node %v:\n -UIPort: %v \n -GossipAddr: %v \n -Peers: %v \n -Simple: %v\n",
+	*name, *uiPort, *gossipAddr, *peers, *simple)*/
 
 	address := "127.0.0.1:" + *uiPort
 

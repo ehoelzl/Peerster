@@ -19,10 +19,10 @@ type Gossiper struct {
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool) *Gossiper {
-	udpAddr, err := net.ResolveUDPAddr("udp4", uiAddress)
+	clientAddr, err := net.ResolveUDPAddr("udp4", uiAddress)
 	utils.CheckError(err, fmt.Sprintf("Error when resolving client address %v for %v \n", uiAddress, name))
 
-	udpConn, err := net.ListenUDP("udp4", udpAddr) // Connection to client
+	clientConn, err := net.ListenUDP("udp4", clientAddr) // Connection to client
 	utils.CheckError(err, fmt.Sprintf("Error when opening client UDP channel for %v\n", name))
 
 	gossipAddr, err := net.ResolveUDPAddr("udp4", gossipAddress)
@@ -30,9 +30,11 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 
 	gossipConn, err := net.ListenUDP("udp4", gossipAddr) // Connection to client
 	utils.CheckError(err, fmt.Sprintf("Error when opening gossip UDP channel for %v\n", name))
+
+	fmt.Printf("Starting gossiper %v\n UIAddress: %v\n GossipAddress %v\n", name, clientAddr, gossipAddr)
 	return &Gossiper{
-		clientAddress: udpAddr,
-		clientConn:    udpConn,
+		clientAddress: clientAddr,
+		clientConn:    clientConn,
 		gossipAddress: gossipAddr,
 		gossipConn:    gossipConn,
 		Name:          name,
@@ -42,7 +44,6 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 }
 
 func (gp *Gossiper) StartClientListener() {
-	fmt.Printf("Gossip %v listening on UIPort %v\n\n", gp.Name, gp.clientAddress)
 	packetBytes := make([]byte, 1024)
 	packet := &ClientMessage{}
 	for {
@@ -59,7 +60,6 @@ func (gp *Gossiper) StartClientListener() {
 }
 
 func (gp *Gossiper) StartGossipListener() {
-	fmt.Printf("Gossip %v listening on GossipPort %v\n\n", gp.Name, gp.gossipAddress)
 	packetBytes := make([]byte, 1024)
 	packet := &GossipPacket{}
 	for {
