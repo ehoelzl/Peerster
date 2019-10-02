@@ -14,7 +14,7 @@ type Gossiper struct {
 	GossipConn    *net.UDPConn
 	Name          string
 	Peers         []*net.UDPAddr
-	simple        bool
+	IsSimple      bool
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool) *Gossiper {
@@ -34,7 +34,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		GossipConn:    gossipConn,
 		Name:          name,
 		Peers:         utils.ParseAddresses(initialPeers),
-		simple:        simple,
+		IsSimple:      simple,
 	}
 }
 
@@ -48,7 +48,11 @@ func (gp *Gossiper) StartClientListener() {
 		utils.CheckError(err, fmt.Sprintf("Error decoding packet from client Port for %v\n", gp.Name))
 
 		fmt.Println("CLIENT MESSAGE", packet.Contents)
-		gp.simpleBroadcast(packet.Contents, gp.Name, nil)
+		if gp.IsSimple {
+			gp.simpleBroadcast(packet.Contents, gp.Name, nil)
+		} else {
+
+		}
 	}
 
 }
