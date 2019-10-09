@@ -15,7 +15,7 @@ func main() {
 	flag.Parse()
 	fmt.Printf("Message %v to be sent to %v\n", *msg, *uiPort)
 
-	message := ClientMessage{Contents: *msg}
+	message := SimpleMessage{Contents: *msg}
 	packetBytes, err := protobuf.Encode(&message)
 	utils.CheckError(err, "Error encoding message")
 
