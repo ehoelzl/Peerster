@@ -63,7 +63,7 @@ func CoinFlip() bool {
 	return rand.Int() % 2 == 0
 }
 
-func NewPeerTimer(messageId uint32, elem *PeerTickers, callback func(), seconds time.Duration) *PeerTickers {
+func NewPeerTimer(address *net.UDPAddr, callback func(), seconds time.Duration) chan bool {
 	receivedAck := make(chan bool)  // Create chanel for bool
 	go func() {
 		ticker := time.NewTicker(seconds * time.Second)
@@ -73,9 +73,9 @@ func NewPeerTimer(messageId uint32, elem *PeerTickers, callback func(), seconds 
 				ticker.Stop()
 				return
 			case <-ticker.C:
-				fmt.Printf("TIMEMOUT for message %v\n", messageId)
+				fmt.Printf("TIMEMOUT for %v\n", address.String())
 				if callback != nil {
-					go callback()
+					callback()
 				} else {
 					ticker.Stop()
 				}
@@ -83,6 +83,5 @@ func NewPeerTimer(messageId uint32, elem *PeerTickers, callback func(), seconds 
 			}
 		}
 	}()
-	elem.Tickers[messageId] = receivedAck
-	return elem
+	return receivedAck
 }

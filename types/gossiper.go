@@ -17,7 +17,7 @@ type Gossiper struct {
 	Nodes         []*net.UDPAddr
 	Peers         map[string]*Peer // From name to peer
 	IsSimple      bool
-	Tickers       map[string]map[string]*utils.PeerTickers // nodeAddress -> messageId -> bool
+	Tickers       map[string]chan bool // nodeAddress -> messageId -> bool
 	Buffer        map[string]*RumorMessage // Keeps track of the last rumor sent to this node
 }
 
@@ -43,7 +43,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		Nodes:         utils.ParseAddresses(initialPeers),
 		Peers:         peers,
 		IsSimple:      simple,
-		Tickers:       make(map[string]map[string]*utils.PeerTickers),
+		Tickers:       make(map[string]chan bool),
 		Buffer:        make(map[string]*RumorMessage),
 	}
 }
@@ -119,13 +119,14 @@ func (gp *Gossiper) StartGossipListener() {
 				utils.PrintAddresses(gp.Nodes)
 
 				gp.CheckTickers(udpAddr, status)
-				log.Println("Checked ticks")
 				if gp.IsInSync(status) {
 					fmt.Printf("IN SYNC WITH %v\n", udpAddr.String())
 					//fmt.Println(gp.Tickers)
 					flip := utils.CoinFlip()
 					if flip {
 						except := map[string]struct{}{udpAddr.String(): struct{}{}}
+						/*log.Println(gp.Buffer)
+						log.Println(udpAddr.String())*/
 						go gp.StartRumormongering(gp.Buffer[udpAddr.String()], except, true)
 					}
 				} else {
@@ -148,6 +149,7 @@ func (gp *Gossiper) CheckMissingMessages(status *StatusPacket, other *net.UDPAdd
 				if ps.NextID < peer.NextID { // We have messages that other peer doesn't
 					message := gp.Peers[peer.Identifier].Messages[ps.NextID] // Get the missing message
 					go gp.SendRumorMessage(message, other, nil)
+					log.Printf("Peer %v is missing message %v from %v\n", other.String(), ps.NextID, ps.Identifier)
 					return
 				}
 			}
@@ -186,7 +188,6 @@ func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 }
 
 func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, to *net.UDPAddr) {
-	log.Println(simple, rumor, status, to.String())
 	gossipPacket, err := protobuf.Encode(&GossipPacket{Simple: simple, Rumor: rumor, Status: status})
 	utils.CheckError(err, fmt.Sprintf("Error encoding gossipPacket for %v\n", gp.Nodes))
 	_, err = gp.GossipConn.WriteToUDP(gossipPacket, to)
@@ -207,17 +208,9 @@ func (gp *Gossiper) SendRumorMessage(message *RumorMessage, to *net.UDPAddr, cal
 	gp.SendPacket(nil, message, nil, to)
 
 	// Then start ticker for this node/origin/messageId
-	gp.DeleteTicker(to, message.Origin, message.ID) // Check if ticker already exists for this message
+	gp.DeleteTicker(to) // Check if ticker already exists for this message
 
-	if _, ok := gp.Tickers[to.String()]; !ok {
-		gp.Tickers[to.String()] = make(map[string]*utils.PeerTickers) // If nothing for this node, create
-	}
-	if _, ok := gp.Tickers[to.String()][message.Origin]; !ok {
-		gp.Tickers[to.String()][message.Origin] = &utils.PeerTickers{Tickers: make(map[uint32]chan bool)}
-	}
-
-	elem := gp.Tickers[to.String()][message.Origin]
-	gp.Tickers[to.String()][message.Origin] = utils.NewPeerTimer(message.ID, elem, callback, 10)
+	gp.Tickers[to.String()] = utils.NewPeerTimer(to, callback, 10)
 	gp.Buffer[to.String()] = message
 }
 
@@ -236,8 +229,8 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 		except[randomNode.String()] = struct{}{} // Add the receiver node to `except` list to avoid loops
 
 		callback := func() {
-			gp.DeleteTicker(randomNode, message.Origin, message.ID) // Delete ticker
 			go gp.StartRumormongering(message, except, false)       // Rumormonger with other nodes
+			gp.DeleteTicker(randomNode) // Delete ticker
 		}
 		gp.SendRumorMessage(message, randomNode, callback)
 	}
