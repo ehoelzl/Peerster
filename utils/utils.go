@@ -8,9 +8,8 @@ import (
 	"time"
 )
 
-type PeerTicker struct {
-	AckReceived chan bool
-	ID          uint32
+type PeerTickers struct {
+	Tickers map[uint32]chan bool
 }
 
 func CheckError(err error, msg string) {
@@ -60,8 +59,8 @@ func RandomNode(nodes []*net.UDPAddr, except map[string]struct{}) *net.UDPAddr {
 	return toKeep[randInt]
 }
 
-func NewPeerTimer(messageId uint32, callback func(), seconds time.Duration) *PeerTicker {
-	receivedAck := make(chan bool)
+func NewPeerTimer(messageId uint32, elem *PeerTickers, callback func(), seconds time.Duration) *PeerTickers {
+	receivedAck := make(chan bool)  // Create chanel for bool
 	go func() {
 		ticker := time.NewTicker(seconds * time.Second)
 		for {
@@ -69,14 +68,15 @@ func NewPeerTimer(messageId uint32, callback func(), seconds time.Duration) *Pee
 			case <-receivedAck:
 				ticker.Stop()
 			case <-ticker.C:
-				fmt.Print("TIMEMOUT\n")
-				ticker.Stop()
-				callback()
+				fmt.Printf("TIMEMOUT for message %v\n", messageId)
+				if callback != nil {
+					go callback()
+				} else {
+					ticker.Stop()
+				}
 			}
 		}
 	}()
-	return &PeerTicker{
-		AckReceived: receivedAck,
-		ID:          messageId,
-	}
+	elem.Tickers[messageId] = receivedAck
+	return elem
 }

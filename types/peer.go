@@ -19,16 +19,14 @@ func NewPeer(identifier string) *Peer {
 	}
 }
 
-func (p *Peer) AddMessage(message *RumorMessage) (bool, bool){
+func (p *Peer) AddMessage(message *RumorMessage) bool{
 	//First check if message ID is == to NextID and corresponds to peer
-	if message.Origin != p.Identifier || message.ID < p.NextID{ //Previous message or not same peer
-		return false, false
-	} else if message.ID > p.NextID { // Message is ahead of current Peer
-		return false, true
+	if message.Origin != p.Identifier || message.ID != p.NextID{ //Previous message or not same peer
+		return false
 	} else {
 		p.Messages[message.ID] = message
 		p.NextID += 1
-		return true, false
+		return true
 	}
 }
 
