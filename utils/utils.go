@@ -71,6 +71,7 @@ func NewPeerTimer(messageId uint32, elem *PeerTickers, callback func(), seconds 
 			select {
 			case <-receivedAck:
 				ticker.Stop()
+				return
 			case <-ticker.C:
 				fmt.Printf("TIMEMOUT for message %v\n", messageId)
 				if callback != nil {
@@ -78,6 +79,7 @@ func NewPeerTimer(messageId uint32, elem *PeerTickers, callback func(), seconds 
 				} else {
 					ticker.Stop()
 				}
+				return
 			}
 		}
 	}()

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/dedis/protobuf"
 	"github.com/ehoelzl/Peerster/utils"
+	"log"
 	"net"
 )
 
@@ -17,7 +18,7 @@ type Gossiper struct {
 	Peers         map[string]*Peer // From name to peer
 	IsSimple      bool
 	Tickers       map[string]map[string]*utils.PeerTickers // nodeAddress -> messageId -> bool
-	Buffer        map[string]*RumorMessage           // Keeps track of the last rumor sent to this node
+	Buffer        map[string]*RumorMessage // Keeps track of the last rumor sent to this node
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool) *Gossiper {
@@ -112,12 +113,13 @@ func (gp *Gossiper) StartGossipListener() {
 					except := map[string]struct{}{udpAddr.String(): struct{}{}}
 					go gp.StartRumormongering(rumor, except, false) // Monger with other nodes except this one
 				}
-			} else { // Status Message
+			} else if packet.Status != nil { // Status Message
 				status := packet.Status
 				status.PrintStatusMessage(udpAddr)
 				utils.PrintAddresses(gp.Nodes)
 
 				gp.CheckTickers(udpAddr, status)
+				log.Println("Checked ticks")
 				if gp.IsInSync(status) {
 					fmt.Printf("IN SYNC WITH %v\n", udpAddr.String())
 					//fmt.Println(gp.Tickers)
@@ -129,7 +131,8 @@ func (gp *Gossiper) StartGossipListener() {
 				} else {
 					gp.CheckMissingMessages(status, udpAddr)
 				}
-
+			} else {
+				fmt.Printf("Packet from %v is empty\n", udpAddr.String())
 			}
 		}
 	}
@@ -183,6 +186,7 @@ func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 }
 
 func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, to *net.UDPAddr) {
+	log.Println(simple, rumor, status, to.String())
 	gossipPacket, err := protobuf.Encode(&GossipPacket{Simple: simple, Rumor: rumor, Status: status})
 	utils.CheckError(err, fmt.Sprintf("Error encoding gossipPacket for %v\n", gp.Nodes))
 	_, err = gp.GossipConn.WriteToUDP(gossipPacket, to)
@@ -204,6 +208,7 @@ func (gp *Gossiper) SendRumorMessage(message *RumorMessage, to *net.UDPAddr, cal
 
 	// Then start ticker for this node/origin/messageId
 	gp.DeleteTicker(to, message.Origin, message.ID) // Check if ticker already exists for this message
+
 	if _, ok := gp.Tickers[to.String()]; !ok {
 		gp.Tickers[to.String()] = make(map[string]*utils.PeerTickers) // If nothing for this node, create
 	}

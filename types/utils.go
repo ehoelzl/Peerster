@@ -1,6 +1,9 @@
 package types
 
-import "net"
+import (
+	"log"
+	"net"
+)
 
 func (gp *Gossiper) AddNode(udpAddr *net.UDPAddr) {
 	// Checks if the given `*net.UDPAddr` is in `gp.Nodes`, if not, it adds it.
@@ -74,6 +77,7 @@ func (gp *Gossiper) IsInSync(status *StatusPacket) bool {
 }
 
 func (gp *Gossiper) CheckTickers(sender *net.UDPAddr, status *StatusPacket) {
+	log.Printf("%v\n", gp.Tickers)
 	// Checks the tickers for the given sender and status Message and stops all tickers that have been acked
 	if elem, ok := gp.Tickers[sender.String()]; ok {
 		for _, s := range status.Want { // Iterate on all status messages
