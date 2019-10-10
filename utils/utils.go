@@ -59,6 +59,10 @@ func RandomNode(nodes []*net.UDPAddr, except map[string]struct{}) *net.UDPAddr {
 	return toKeep[randInt]
 }
 
+func CoinFlip() bool {
+	return rand.Int() % 2 == 0
+}
+
 func NewPeerTimer(messageId uint32, elem *PeerTickers, callback func(), seconds time.Duration) *PeerTickers {
 	receivedAck := make(chan bool)  // Create chanel for bool
 	go func() {
