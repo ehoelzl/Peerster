@@ -73,7 +73,7 @@ func NewPeerTimer(address *net.UDPAddr, callback func(), seconds time.Duration) 
 				ticker.Stop()
 				return
 			case <-ticker.C:
-				fmt.Printf("TIMEMOUT for %v\n", address.String())
+				fmt.Printf("TIMEMOUT for %v\n\n", address.String())
 				if callback != nil {
 					callback()
 				} else {

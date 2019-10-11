@@ -4,21 +4,24 @@ import (
 	"fmt"
 	"github.com/dedis/protobuf"
 	"github.com/ehoelzl/Peerster/utils"
-	"log"
+	//"log"
 	"net"
+	"sync"
 )
 
 type Gossiper struct {
-	ClientAddress   *net.UDPAddr
-	ClientConn      *net.UDPConn
-	GossipAddress   *net.UDPAddr
-	GossipConn      *net.UDPConn
-	Name            string
-	Nodes           []*net.UDPAddr
-	Peers           map[string]*Peer // From name to peer
-	IsSimple        bool
-	Tickers         map[string]chan bool     // nodeAddress -> messageId -> bool
-	Buffer          map[string]*RumorMessage // Keeps track of the last rumor sent to this node
+	ClientAddress *net.UDPAddr
+	ClientConn    *net.UDPConn
+	GossipAddress *net.UDPAddr
+	GossipConn    *net.UDPConn
+	Name          string
+	Nodes         []*net.UDPAddr
+	Peers         map[string]*Peer // From name to peer
+	IsSimple      bool
+	Tickers       map[string]chan bool // nodeAddress -> messageId -> bool
+	TickerLock    sync.RWMutex
+	Buffer        map[string]*RumorMessage // Keeps track of the last rumor sent to this node
+	BufferLock    sync.RWMutex
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool) *Gossiper {
@@ -35,16 +38,18 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 	selfPeer := NewPeer(name)
 	peers := map[string]*Peer{name: selfPeer}
 	return &Gossiper{
-		ClientAddress:   clientAddr,
-		ClientConn:      clientConn,
-		GossipAddress:   gossipAddr,
-		GossipConn:      gossipConn,
-		Name:            name,
-		Nodes:           utils.ParseAddresses(initialPeers),
-		Peers:           peers,
-		IsSimple:        simple,
-		Tickers:         make(map[string]chan bool),
-		Buffer:          make(map[string]*RumorMessage),
+		ClientAddress: clientAddr,
+		ClientConn:    clientConn,
+		GossipAddress: gossipAddr,
+		GossipConn:    gossipConn,
+		Name:          name,
+		Nodes:         utils.ParseAddresses(initialPeers),
+		Peers:         peers,
+		IsSimple:      simple,
+		Tickers:       make(map[string]chan bool),
+		TickerLock:    sync.RWMutex{},
+		Buffer:        make(map[string]*RumorMessage),
+		BufferLock:    sync.RWMutex{},
 	}
 }
 
@@ -113,6 +118,7 @@ func (gp *Gossiper) StartGossipListener() {
 					except := map[string]struct{}{udpAddr.String(): struct{}{}}
 					go gp.StartRumormongering(rumor, except, false) // Monger with other nodes except this one
 				}
+				fmt.Println()
 			} else if packet.Status != nil { // Status Message
 				status := packet.Status
 				status.PrintStatusMessage(udpAddr)
@@ -120,20 +126,23 @@ func (gp *Gossiper) StartGossipListener() {
 
 				isAck := gp.CheckTickers(udpAddr, status)
 				if isAck {
-					log.Printf("Go ACK from %v for last sent message\n", udpAddr.String())
+					//log.Printf("Go ACK from %v for last sent message\n", udpAddr.String())
 				} else {
-					log.Printf("Got status message from %v (not ACK)\n", udpAddr.String())
+					//log.Printf("Got status message from %v (not ACK)\n", udpAddr.String())
 				}
 				if gp.IsInSync(status) {
 					fmt.Printf("IN SYNC WITH %v\n", udpAddr.String())
 					flip := utils.CoinFlip()
+					gp.BufferLock.RLock()
 					if lastMessage, ok := gp.Buffer[udpAddr.String()]; isAck && ok && flip {
 						except := map[string]struct{}{udpAddr.String(): struct{}{}}
 						go gp.StartRumormongering(lastMessage, except, true)
 					}
+					gp.BufferLock.RUnlock()
 				} else {
 					gp.CheckMissingMessages(status, udpAddr)
 				}
+				fmt.Println()
 			} else {
 				fmt.Printf("Packet from %v is empty\n", udpAddr.String())
 			}
@@ -148,12 +157,13 @@ func (gp *Gossiper) CheckMissingMessages(status *StatusPacket, other *net.UDPAdd
 		if nextId, ok := statusMap[peer.Identifier]; ok {
 			if nextId < peer.NextID { // Peer is missing messages from peer.Identifier
 				message := gp.Peers[peer.Identifier].Messages[nextId] // Get the missing message
-				log.Printf("Peer %v is missing message %v from %v\n", other.String(), nextId, peer.Identifier)
+				//log.Printf("Peer %v is missing message %v from %v\n", other.String(), nextId, peer.Identifier)
 				go gp.SendRumorMessage(message, other, nil)
 				return
 			}
 		} else if peer.NextID > 1 { // Peer not present and has messages
 			message := gp.Peers[peer.Identifier].Messages[1] // Get the first message
+			//log.Printf("Peer %v is missing message %v from %v\n", other.String(), 1, peer.Identifier)
 			go gp.SendRumorMessage(message, other, nil)
 			return
 		}
@@ -166,11 +176,12 @@ func (gp *Gossiper) CheckMissingMessages(status *StatusPacket, other *net.UDPAdd
 		}
 		elem := gp.Peers[pName]
 		if elem.NextID < nextId {
-			log.Printf("Missing message %v from %v, requesting\n", elem.NextID, pName)
+			//log.Printf("Missing message %v from %v, requesting\n", elem.NextID, pName)
 			go gp.SendStatusMessage(other)
 			return
 		}
 	}
+	fmt.Println()
 }
 
 /*-------------------- Methods used for transferring messages and broadcasting ------------------------------*/
@@ -183,7 +194,7 @@ func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 	}
 	statusPacket := &StatusPacket{Want: statusMessages}
 	go gp.SendPacket(nil, nil, statusPacket, to)
-	log.Printf("Sent status to %v\n", to.String())
+	//log.Printf("Sent status to %v\n\n", to.String())
 }
 
 func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, to *net.UDPAddr) {
@@ -207,10 +218,14 @@ func (gp *Gossiper) SendRumorMessage(message *RumorMessage, to *net.UDPAddr, cal
 	go gp.SendPacket(nil, message, nil, to)
 
 	// Then start ticker for this node/origin/messageId
+	gp.TickerLock.Lock()
 	gp.DeleteTicker(to) // Check if ticker already exists for this message
-
 	gp.Tickers[to.String()] = utils.NewPeerTimer(to, callback, 10)
+	gp.TickerLock.Unlock()
+
+	gp.BufferLock.Lock()
 	gp.Buffer[to.String()] = message // Add message to buffer
+	gp.BufferLock.Unlock()
 }
 
 func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string]struct{}, coinFlip bool) {
@@ -229,8 +244,11 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 
 		callback := func() {
 			go gp.StartRumormongering(message, except, false) // Rumormonger with other nodes
+			gp.TickerLock.Lock()
 			gp.DeleteTicker(randomNode)                       // Delete ticker
+			gp.TickerLock.Unlock()
 		}
 		gp.SendRumorMessage(message, randomNode, callback)
+		fmt.Println()
 	}
 }
