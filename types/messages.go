@@ -33,11 +33,19 @@ type StatusPacket struct {
 	Want []PeerStatus
 }
 
-func (message *StatusPacket) PrintStatusMessage(sender *net.UDPAddr) {
-	peerStatus := message.Want
+func (sp *StatusPacket) PrintStatusMessage(sender *net.UDPAddr) {
+	peerStatus := sp.Want
 	var statusString []string
 	for _, p := range peerStatus {
 		statusString = append(statusString, fmt.Sprintf("peer %v nextID %v", p.Identifier, p.NextID))
 	}
 	fmt.Printf("STATUS from %v %v\n", sender.String(), strings.Join(statusString, " "))
+}
+
+func (sp *StatusPacket) ToMap() map[string]uint32 {
+	statusMap := make(map[string]uint32)
+	for _, ps := range sp.Want {
+		statusMap[ps.Identifier] = ps.NextID
+	}
+	return statusMap
 }

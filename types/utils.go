@@ -61,9 +61,11 @@ func (gp *Gossiper) IsInSync(status *StatusPacket) bool {
 	return true
 }
 
-func (gp *Gossiper) CheckTickers(sender *net.UDPAddr, status *StatusPacket) {
+func (gp *Gossiper) CheckTickers(sender *net.UDPAddr, status *StatusPacket) bool{
 	// Checks the tickers for the given sender and status Message and stops all tickers that have been acked
 	if _, ok := gp.Tickers[sender.String()]; ok {
 		gp.DeleteTicker(sender)
+		return true
 	}
+	return false
 }

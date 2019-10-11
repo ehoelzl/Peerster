@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	. "github.com/ehoelzl/Peerster/server"
 	. "github.com/ehoelzl/Peerster/types"
 )
 
@@ -15,9 +16,8 @@ func main() {
 	flag.Parse()
 
 	address := "127.0.0.1:" + *uiPort
-
 	gp := NewGossiper(address, *gossipAddr, *name, *peers, *simple)
 	go gp.StartGossipListener()
-	gp.StartClientListener()
-
+	go gp.StartClientListener()
+	NewServer(address, gp)
 }

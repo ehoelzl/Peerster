@@ -9,16 +9,16 @@ import (
 )
 
 type Gossiper struct {
-	ClientAddress *net.UDPAddr
-	ClientConn    *net.UDPConn
-	GossipAddress *net.UDPAddr
-	GossipConn    *net.UDPConn
-	Name          string
-	Nodes         []*net.UDPAddr
-	Peers         map[string]*Peer // From name to peer
-	IsSimple      bool
-	Tickers       map[string]chan bool // nodeAddress -> messageId -> bool
-	Buffer        map[string]*RumorMessage // Keeps track of the last rumor sent to this node
+	ClientAddress   *net.UDPAddr
+	ClientConn      *net.UDPConn
+	GossipAddress   *net.UDPAddr
+	GossipConn      *net.UDPConn
+	Name            string
+	Nodes           []*net.UDPAddr
+	Peers           map[string]*Peer // From name to peer
+	IsSimple        bool
+	Tickers         map[string]chan bool     // nodeAddress -> messageId -> bool
+	Buffer          map[string]*RumorMessage // Keeps track of the last rumor sent to this node
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool) *Gossiper {
@@ -35,16 +35,16 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 	selfPeer := NewPeer(name)
 	peers := map[string]*Peer{name: selfPeer}
 	return &Gossiper{
-		ClientAddress: clientAddr,
-		ClientConn:    clientConn,
-		GossipAddress: gossipAddr,
-		GossipConn:    gossipConn,
-		Name:          name,
-		Nodes:         utils.ParseAddresses(initialPeers),
-		Peers:         peers,
-		IsSimple:      simple,
-		Tickers:       make(map[string]chan bool),
-		Buffer:        make(map[string]*RumorMessage),
+		ClientAddress:   clientAddr,
+		ClientConn:      clientConn,
+		GossipAddress:   gossipAddr,
+		GossipConn:      gossipConn,
+		Name:            name,
+		Nodes:           utils.ParseAddresses(initialPeers),
+		Peers:           peers,
+		IsSimple:        simple,
+		Tickers:         make(map[string]chan bool),
+		Buffer:          make(map[string]*RumorMessage),
 	}
 }
 
@@ -65,7 +65,7 @@ func (gp *Gossiper) StartClientListener() {
 		if gp.IsSimple {
 			packet.RelayPeerAddr = gp.GossipAddress.String()
 			packet.OriginalName = gp.Name
-			go gp.simpleBroadcast(packet, nil)
+			go gp.SimpleBroadcast(packet, nil)
 		} else {
 
 			message := &RumorMessage{
@@ -73,8 +73,8 @@ func (gp *Gossiper) StartClientListener() {
 				ID:     gp.Peers[gp.Name].NextID,
 				Text:   packet.Contents,
 			}
-			messageAdded := gp.Peers[gp.Name].AddMessage(message) // Usually, message is always added
-			if messageAdded {                                     //Rumor Only if message was added (i.e. never seen before and is coherent with NextID)
+			messageAdded := gp.AddRumorMessage(message) // Usually, message is always added
+			if messageAdded {                           //Rumor Only if message was added (i.e. never seen before and is coherent with NextID)
 				go gp.StartRumormongering(message, nil, false)
 			}
 		}
@@ -100,7 +100,7 @@ func (gp *Gossiper) StartGossipListener() {
 			utils.PrintAddresses(gp.Nodes)
 
 			packet.Simple.RelayPeerAddr = gp.GossipAddress.String()
-			go gp.simpleBroadcast(packet.Simple, udpAddr) // keep original name
+			go gp.SimpleBroadcast(packet.Simple, udpAddr) // keep original name
 		} else {
 			if packet.Rumor != nil { // Rumor message
 				rumor := packet.Rumor
@@ -108,7 +108,7 @@ func (gp *Gossiper) StartGossipListener() {
 				utils.PrintAddresses(gp.Nodes)
 
 				messageAdded := gp.AddRumorMessage(rumor) // Add message to list
-				go gp.SendStatusMessage(udpAddr)
+				go gp.SendStatusMessage(udpAddr)          // Send back ack
 				if messageAdded {
 					except := map[string]struct{}{udpAddr.String(): struct{}{}}
 					go gp.StartRumormongering(rumor, except, false) // Monger with other nodes except this one
@@ -118,16 +118,18 @@ func (gp *Gossiper) StartGossipListener() {
 				status.PrintStatusMessage(udpAddr)
 				utils.PrintAddresses(gp.Nodes)
 
-				gp.CheckTickers(udpAddr, status)
+				isAck := gp.CheckTickers(udpAddr, status)
+				if isAck {
+					log.Printf("Go ACK from %v for last sent message\n", udpAddr.String())
+				} else {
+					log.Printf("Got status message from %v (not ACK)\n", udpAddr.String())
+				}
 				if gp.IsInSync(status) {
 					fmt.Printf("IN SYNC WITH %v\n", udpAddr.String())
-					//fmt.Println(gp.Tickers)
 					flip := utils.CoinFlip()
-					if flip {
+					if lastMessage, ok := gp.Buffer[udpAddr.String()]; isAck && ok && flip {
 						except := map[string]struct{}{udpAddr.String(): struct{}{}}
-						/*log.Println(gp.Buffer)
-						log.Println(udpAddr.String())*/
-						go gp.StartRumormongering(gp.Buffer[udpAddr.String()], except, true)
+						go gp.StartRumormongering(lastMessage, except, true)
 					}
 				} else {
 					gp.CheckMissingMessages(status, udpAddr)
@@ -140,22 +142,17 @@ func (gp *Gossiper) StartGossipListener() {
 }
 
 func (gp *Gossiper) CheckMissingMessages(status *StatusPacket, other *net.UDPAddr) {
+	statusMap := status.ToMap()
 	// First check if they have missing messages
 	for _, peer := range gp.Peers {
-		found := false
-		for _, ps := range status.Want {
-			if ps.Identifier == peer.Identifier {
-				found = true
-				if ps.NextID < peer.NextID { // We have messages that other peer doesn't
-					message := gp.Peers[peer.Identifier].Messages[ps.NextID] // Get the missing message
-					go gp.SendRumorMessage(message, other, nil)
-					log.Printf("Peer %v is missing message %v from %v\n", other.String(), ps.NextID, ps.Identifier)
-					return
-				}
+		if nextId, ok := statusMap[peer.Identifier]; ok {
+			if nextId < peer.NextID { // Peer is missing messages from peer.Identifier
+				message := gp.Peers[peer.Identifier].Messages[nextId] // Get the missing message
+				log.Printf("Peer %v is missing message %v from %v\n", other.String(), nextId, peer.Identifier)
+				go gp.SendRumorMessage(message, other, nil)
+				return
 			}
-		}
-		if !found { // Means peer.Identifier not present in status message
-			//fmt.Printf("Peer %v not found\n", peer.Identifier)
+		} else if peer.NextID > 1 { // Peer not present and has messages
 			message := gp.Peers[peer.Identifier].Messages[1] // Get the first message
 			go gp.SendRumorMessage(message, other, nil)
 			return
@@ -163,12 +160,13 @@ func (gp *Gossiper) CheckMissingMessages(status *StatusPacket, other *net.UDPAdd
 	}
 
 	// Then check if I have missing messages
-	for _, ps := range status.Want {
-		if _, ok := gp.Peers[ps.Identifier]; !ok { // If peer not present, create new peer
-			gp.Peers[ps.Identifier] = NewPeer(ps.Identifier)
+	for pName, nextId := range statusMap {
+		if _, ok := gp.Peers[pName]; !ok { // If peer not present, create new peer
+			gp.Peers[pName] = NewPeer(pName)
 		}
-		elem := gp.Peers[ps.Identifier]
-		if elem.NextID < ps.NextID {
+		elem := gp.Peers[pName]
+		if elem.NextID < nextId {
+			log.Printf("Missing message %v from %v, requesting\n", elem.NextID, pName)
 			go gp.SendStatusMessage(other)
 			return
 		}
@@ -184,7 +182,8 @@ func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 		statusMessages = append(statusMessages, PeerStatus{Identifier: p.Identifier, NextID: p.NextID,})
 	}
 	statusPacket := &StatusPacket{Want: statusMessages}
-	gp.SendPacket(nil, nil, statusPacket, to)
+	go gp.SendPacket(nil, nil, statusPacket, to)
+	log.Printf("Sent status to %v\n", to.String())
 }
 
 func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, to *net.UDPAddr) {
@@ -194,24 +193,24 @@ func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, statu
 	utils.CheckError(err, fmt.Sprintf("Error sending gossipPacket from node %v to node %v\n", gp.GossipAddress.String(), to.String()))
 }
 
-func (gp *Gossiper) simpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) {
+func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) {
 	// Double functionality: Broadcasts to all peers if except == nil, or to all except the given one
 	for _, nodeAddr := range gp.Nodes {
 		if nodeAddr.String() != except.String() {
-			gp.SendPacket(packet, nil, nil, nodeAddr)
+			go gp.SendPacket(packet, nil, nil, nodeAddr)
 		}
 	}
 }
 
 func (gp *Gossiper) SendRumorMessage(message *RumorMessage, to *net.UDPAddr, callback func()) {
 	// Sends the message to the given node, and creates a timer
-	gp.SendPacket(nil, message, nil, to)
+	go gp.SendPacket(nil, message, nil, to)
 
 	// Then start ticker for this node/origin/messageId
 	gp.DeleteTicker(to) // Check if ticker already exists for this message
 
 	gp.Tickers[to.String()] = utils.NewPeerTimer(to, callback, 10)
-	gp.Buffer[to.String()] = message
+	gp.Buffer[to.String()] = message // Add message to buffer
 }
 
 func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string]struct{}, coinFlip bool) {
@@ -229,8 +228,8 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 		except[randomNode.String()] = struct{}{} // Add the receiver node to `except` list to avoid loops
 
 		callback := func() {
-			go gp.StartRumormongering(message, except, false)       // Rumormonger with other nodes
-			gp.DeleteTicker(randomNode) // Delete ticker
+			go gp.StartRumormongering(message, except, false) // Rumormonger with other nodes
+			gp.DeleteTicker(randomNode)                       // Delete ticker
 		}
 		gp.SendRumorMessage(message, randomNode, callback)
 	}
