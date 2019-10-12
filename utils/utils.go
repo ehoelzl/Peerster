@@ -6,14 +6,9 @@ import (
 	"time"
 )
 
-type PeerTickers struct {
-	Tickers map[uint32]chan bool
-}
-
 func CheckError(err error, msg string) {
 	if err != nil {
 		fmt.Println(msg)
-		panic(err)
 	}
 }
 

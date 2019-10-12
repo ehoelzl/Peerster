@@ -5,6 +5,8 @@ import (
 	"github.com/dedis/protobuf"
 	"github.com/ehoelzl/Peerster/utils"
 	"log"
+	"time"
+
 	//"log"
 	"net"
 	"sync"
@@ -19,7 +21,7 @@ type Gossiper struct {
 	Name          string
 	Nodes         *Nodes
 	Peers         *GossipPeers     // From name to peer
-	Tickers       *GossipTickers
+	Tickers       *Tickers
 	Buffer        map[string]*RumorMessage // Keeps track of the last rumor sent to this node
 	BufferLock    sync.RWMutex
 }
@@ -56,7 +58,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		if randomNode != nil {
 			gossiper.SendStatusMessage(randomNode)
 		}
-	}, 10)
+	}, time.Duration(antiEntropy))
 
 	return gossiper
 }
@@ -66,6 +68,8 @@ func (gp *Gossiper) HandleClientMessage(message *Message) {
 		log.Println("Got nil message from client")
 		return
 	}
+	fmt.Printf("CLIENT MESSAGE %v\n", message.Text)
+
 	if gp.IsSimple {
 		simpleMessage := &SimpleMessage{
 			OriginalName:  gp.Name,
@@ -105,7 +109,7 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 	status.PrintStatusMessage(from)
 	gp.Nodes.Print()
 
-	isAck := gp.Tickers.CheckTickers(from, status)
+	isAck := gp.Tickers.DeleteTicker(from)
 
 	missing := gp.Peers.GetTheirMissingMessage(status)
 	isMissing := gp.Peers.IsMissingMessage(status)
@@ -113,14 +117,19 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 
 	if inSync {
 		fmt.Printf("IN SYNC WITH %v\n", from.String())
-		flip := utils.CoinFlip()
-		gp.BufferLock.RLock()
-		// Only send coin flip if we have sent a message to this node, and the previous status is an ACK (not antiEntropy)
-		if lastMessage, ok := gp.Buffer[from.String()]; isAck && ok && flip {
-			except := map[string]struct{}{from.String(): struct{}{}}
-			go gp.StartRumormongering(lastMessage, except, true)
+		if isAck{
+			flip := utils.CoinFlip()
+			fmt.Printf("Is Ack: flip ? %v\n", flip)
+			gp.BufferLock.RLock()
+			lastMessage, ok := gp.Buffer[from.String()]
+			gp.BufferLock.RUnlock()
+			if ok && flip {
+				except := map[string]struct{}{from.String(): struct{}{}}
+				go gp.StartRumormongering(lastMessage, except, true)
+			}
 		}
-		gp.BufferLock.RUnlock()
+
+
 	} else {
 		if missing != nil {
 			go gp.SendRumorMessage(missing, from, nil)
@@ -164,9 +173,14 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packet *GossipPacket) 
 
 func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, to *net.UDPAddr) {
 	gossipPacket, err := protobuf.Encode(&GossipPacket{Simple: simple, Rumor: rumor, Status: status})
-	utils.CheckError(err, fmt.Sprintf("Error encoding gossipPacket for %v\n", to.String()))
-	_, err = gp.GossipConn.WriteToUDP(gossipPacket, to)
-	utils.CheckError(err, fmt.Sprintf("Error sending gossipPacket from node %v to node %v\n", gp.GossipAddress.String(), to.String()))
+	if err == nil {
+		_, err = gp.GossipConn.WriteToUDP(gossipPacket, to)
+		if err != nil {
+			fmt.Printf("Error sending gossipPacket from node %v to node %v\n", gp.GossipAddress.String(), to.String())
+		}
+	} else {
+		fmt.Printf("Error encoding gossipPacket for %v\n", to.String())
+	}
 }
 
 func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
@@ -194,7 +208,7 @@ func (gp *Gossiper) SendRumorMessage(message *RumorMessage, to *net.UDPAddr, cal
 	go gp.SendPacket(nil, message, nil, to)
 
 	// Then start ticker for this node/origin/messageId
-	gp.Tickers.AddTicker(to, message, callback, 10)
+	gp.Tickers.AddTicker(to, callback, 10)
 
 	gp.BufferLock.Lock()
 	gp.Buffer[to.String()] = message // Add message to buffer
@@ -217,9 +231,7 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 
 		callback := func() {
 			go gp.StartRumormongering(message, except, false) // Rumormonger with other nodes
-			gp.Tickers.Lock.Lock()
-			gp.Tickers.DeleteTicker(randomNode, message.Origin, message.ID)
-			gp.Tickers.Lock.Unlock()
+			gp.Tickers.DeleteTicker(randomNode)
 		}
 		gp.SendRumorMessage(message, randomNode, callback)
 		fmt.Println()

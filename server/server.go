@@ -2,10 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	. "github.com/ehoelzl/Peerster/types"
 	"github.com/gorilla/mux"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"time"
 )
@@ -13,10 +15,6 @@ import (
 type Server struct {
 	Address  string
 	Gossiper *Gossiper
-}
-
-type GuiMessage struct {
-	Message string
 }
 
 func (s *Server) GetMessageHandler(w http.ResponseWriter, r *http.Request) {
@@ -58,13 +56,33 @@ func (s *Server) PostMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	decoder := json.NewDecoder(r.Body)
 
-	var t GuiMessage
-	err := decoder.Decode(&t)
+	var mess Message
+	err := decoder.Decode(&mess)
 
 	if err != nil {
 		panic(err)
 	}
-	log.Println(t.Message)
+	go s.Gossiper.HandleClientMessage(&mess)
+}
+
+func (s *Server) PostNodeHandler(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(r.Body)
+
+	var newNode Message
+	err := decoder.Decode(&newNode)
+
+	if err != nil {
+		fmt.Println("Could not encode message from client")
+	} else {
+		nodeAddress, err := net.ResolveUDPAddr("udp4", newNode.Text)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Printf("Could not resolve address %v, added by user\n", newNode.Text)
+		} else {
+			w.WriteHeader(http.StatusOK)
+			go s.Gossiper.Nodes.AddNode(nodeAddress)
+		}
+	}
 }
 
 func NewServer(addr string, gossiper *Gossiper) {
@@ -77,6 +95,7 @@ func NewServer(addr string, gossiper *Gossiper) {
 	r.HandleFunc("/message", server.GetMessageHandler).Methods("GET")
 	r.HandleFunc("/node", server.GetNodeHandler).Methods("GET")
 	r.HandleFunc("/message", server.PostMessageHandler).Methods("POST")
+	r.HandleFunc("/node", server.PostNodeHandler).Methods("POST")
 
 	srv := &http.Server{
 		Handler: r,
