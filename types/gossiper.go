@@ -14,17 +14,17 @@ type Gossiper struct {
 	ClientConn    *net.UDPConn
 	GossipAddress *net.UDPAddr
 	GossipConn    *net.UDPConn
+	IsSimple      bool
 	Name          string
 	Nodes         []*net.UDPAddr
-	Peers         map[string]*Peer // From name to peer
-	IsSimple      bool
+	Peers         map[string]*Peer     // From name to peer
 	Tickers       map[string]chan bool // nodeAddress -> messageId -> bool
 	TickerLock    sync.RWMutex
 	Buffer        map[string]*RumorMessage // Keeps track of the last rumor sent to this node
 	BufferLock    sync.RWMutex
 }
 
-func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool) *Gossiper {
+func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint) *Gossiper {
 	// Creates new gossiper with the given parameters
 	clientAddr, err := net.ResolveUDPAddr("udp4", uiAddress)
 	clientConn, err := net.ListenUDP("udp4", clientAddr) // Connection to client
@@ -37,7 +37,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 
 	selfPeer := NewPeer(name)
 	peers := map[string]*Peer{name: selfPeer}
-	return &Gossiper{
+	gossiper := &Gossiper{
 		ClientAddress: clientAddr,
 		ClientConn:    clientConn,
 		GossipAddress: gossipAddr,
@@ -51,12 +51,21 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		Buffer:        make(map[string]*RumorMessage),
 		BufferLock:    sync.RWMutex{},
 	}
+
+	go utils.NewTicker(func() {
+		randomNode := utils.RandomNode(gossiper.Nodes, nil) // Pick random node
+		if randomNode != nil {
+			gossiper.SendStatusMessage(randomNode)
+		}
+	}, 10)
+
+	return gossiper
 }
 
 func (gp *Gossiper) StartClientListener() {
 	// Listener for client
 	packetBytes := make([]byte, 1024)
-	packet := &SimpleMessage{}
+	packet := &Message{}
 	for {
 		// First read packet
 		n, _, err := gp.ClientConn.ReadFromUDP(packetBytes)
@@ -64,19 +73,23 @@ func (gp *Gossiper) StartClientListener() {
 		err = protobuf.Decode(packetBytes[0:n], packet)
 		utils.CheckError(err, fmt.Sprintf("Error decoding packet from client Port for %v\n", gp.Name))
 
-		fmt.Println("CLIENT MESSAGE", packet.Contents)
+		fmt.Println("CLIENT MESSAGE", packet.Text)
 
 		// Start mongering or broadcasting
+		// TODO: create routine for this
 		if gp.IsSimple {
-			packet.RelayPeerAddr = gp.GossipAddress.String()
-			packet.OriginalName = gp.Name
-			go gp.SimpleBroadcast(packet, nil)
+			simpleMessage := &SimpleMessage{
+				OriginalName:  gp.Name,
+				RelayPeerAddr: gp.GossipAddress.String(),
+				Contents:      packet.Text,
+			}
+			go gp.SimpleBroadcast(simpleMessage, nil)
 		} else {
 
 			message := &RumorMessage{
 				Origin: gp.Name,
 				ID:     gp.Peers[gp.Name].NextID,
-				Text:   packet.Contents,
+				Text:   packet.Text,
 			}
 			messageAdded := gp.AddRumorMessage(message) // Usually, message is always added
 			if messageAdded {                           //Rumor Only if message was added (i.e. never seen before and is coherent with NextID)
@@ -245,7 +258,7 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 		callback := func() {
 			go gp.StartRumormongering(message, except, false) // Rumormonger with other nodes
 			gp.TickerLock.Lock()
-			gp.DeleteTicker(randomNode)                       // Delete ticker
+			gp.DeleteTicker(randomNode) // Delete ticker
 			gp.TickerLock.Unlock()
 		}
 		gp.SendRumorMessage(message, randomNode, callback)

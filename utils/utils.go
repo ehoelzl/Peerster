@@ -85,3 +85,20 @@ func NewPeerTimer(address *net.UDPAddr, callback func(), seconds time.Duration) 
 	}()
 	return receivedAck
 }
+
+func NewTicker(callback func(), seconds time.Duration) chan bool {
+	stop := make(chan bool)
+	go func() {
+		ticker := time.NewTicker(seconds * time.Second)
+		for {
+			select {
+			case <-stop:
+				ticker.Stop()
+				return
+			case <-ticker.C:
+				callback()
+			}
+		}
+	}()
+	return stop
+}
