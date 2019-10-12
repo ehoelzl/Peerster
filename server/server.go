@@ -23,13 +23,13 @@ func (s *Server) GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	messageMap := make(map[string][]string)
-	for _, p := range s.Gossiper.Peers {
+	for identifier, p := range s.Gossiper.Peers.Peers {
 		if len(p.Messages) > 0 {
 			var messages []string
 			for _, m := range p.Messages {
 				messages = append(messages, m.Text)
 			}
-			messageMap[p.Identifier] = messages
+			messageMap[identifier] = messages
 		}
 	}
 	jsonString, _ := json.Marshal(messageMap)
@@ -43,7 +43,7 @@ func (s *Server) GetNodeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	var nodesString []string
-	for _, n := range s.Gossiper.Nodes {
+	for _, n := range s.Gossiper.Nodes.Addresses {
 		nodesString = append(nodesString, n.String())
 	}
 
