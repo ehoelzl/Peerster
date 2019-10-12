@@ -19,8 +19,7 @@ type Gossiper struct {
 	Name          string
 	Nodes         *Nodes
 	Peers         *GossipPeers     // From name to peer
-	Tickers       map[string]chan bool // nodeAddress -> messageId -> bool
-	TickerLock    sync.RWMutex
+	Tickers       *GossipTickers
 	Buffer        map[string]*RumorMessage // Keeps track of the last rumor sent to this node
 	BufferLock    sync.RWMutex
 }
@@ -47,8 +46,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		IsSimple:      simple,
 		Nodes:         NewNodes(initialPeers),
 		Peers:         peers,
-		Tickers:       make(map[string]chan bool),
-		TickerLock:    sync.RWMutex{},
+		Tickers:       NewTickers(),
 		Buffer:        make(map[string]*RumorMessage),
 		BufferLock:    sync.RWMutex{},
 	}
@@ -107,11 +105,13 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 	status.PrintStatusMessage(from)
 	gp.Nodes.Print()
 
-	isAck := gp.CheckTickers(from, status) // Maybe check this again
+	isAck := gp.Tickers.CheckTickers(from, status)
 
 	missing := gp.Peers.GetTheirMissingMessage(status)
 	isMissing := gp.Peers.IsMissingMessage(status)
-	if missing == nil && !isMissing {
+	inSync := missing == nil && !isMissing
+
+	if inSync {
 		fmt.Printf("IN SYNC WITH %v\n", from.String())
 		flip := utils.CoinFlip()
 		gp.BufferLock.RLock()
@@ -194,10 +194,7 @@ func (gp *Gossiper) SendRumorMessage(message *RumorMessage, to *net.UDPAddr, cal
 	go gp.SendPacket(nil, message, nil, to)
 
 	// Then start ticker for this node/origin/messageId
-	gp.TickerLock.Lock()
-	gp.DeleteTicker(to) // Check if ticker already exists for this message
-	gp.Tickers[to.String()] = utils.NewPeerTimer(to, callback, 10)
-	gp.TickerLock.Unlock()
+	gp.Tickers.AddTicker(to, message, callback, 10)
 
 	gp.BufferLock.Lock()
 	gp.Buffer[to.String()] = message // Add message to buffer
@@ -220,15 +217,13 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 
 		callback := func() {
 			go gp.StartRumormongering(message, except, false) // Rumormonger with other nodes
-			gp.TickerLock.Lock()
-			gp.DeleteTicker(randomNode) // Delete ticker
-			gp.TickerLock.Unlock()
+			gp.Tickers.Lock.Lock()
+			gp.Tickers.DeleteTicker(randomNode, message.Origin, message.ID)
+			gp.Tickers.Lock.Unlock()
 		}
 		gp.SendRumorMessage(message, randomNode, callback)
 		fmt.Println()
 	}
 }
 
-
-/*Listeners*/
 
