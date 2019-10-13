@@ -14,7 +14,7 @@ func CheckError(err error, msg string) {
 
 
 func CoinFlip() bool {
-	return rand.Int()%2 == 0
+	return rand.Intn(2) == 0
 }
 
 

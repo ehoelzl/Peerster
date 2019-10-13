@@ -75,7 +75,7 @@ func (gp *Gossiper) HandleClientMessage(message *Message) {
 			OriginalName:  gp.Name,
 			RelayPeerAddr: gp.GossipAddress.String(),
 			Contents:      message.Text,
-		}
+		} // TODO : add message
 		go gp.SimpleBroadcast(simpleMessage, nil)
 	} else {
 		message := &RumorMessage{

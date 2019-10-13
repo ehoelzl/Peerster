@@ -76,36 +76,6 @@ func (peers *GossipPeers) NextId(identifier string) uint32 {
 	return peers.Peers[identifier].NextID
 }
 
-
-/*func (peers *GossipPeers) IsInSync(status *StatusPacket) bool {
-	peers.Lock.Lock()
-	defer peers.Lock.Unlock()
-	for _, s := range status.Want { // First check if we have all messages they have
-		if _, ok := peers.Peers[s.Identifier]; !ok {
-			peers.Peers[s.Identifier] = newPeer()
-		}
-		if peers.Peers[s.Identifier].NextID != s.NextID {
-			return false
-		}
-	}
-
-	for identifier, peer := range peers.Peers { // Then check if they have all messages we have
-		found := false
-		for _, s := range status.Want {
-			if s.Identifier == identifier {
-				found = true
-				if s.NextID != peer.NextID { // not in sync
-					return false
-				}
-			}
-		}
-		if !found && peer.NextID > 1 { // They have a missing peer
-			return false
-		}
-	}
-	return true
-}*/
-
 func (peers *GossipPeers) GetTheirMissingMessage(statusPacket *StatusPacket) *RumorMessage {
 	peers.Lock.RLock()
 	defer peers.Lock.RUnlock()
