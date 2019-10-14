@@ -30,7 +30,6 @@ class Node extends Component {
               <div class="peers" >${this.state.gossipAddress} </div>
       `
     }
-
   }
 
 
@@ -113,6 +112,7 @@ class NodesBox extends Component {
 
 class MessagesBox extends Component {
   state = {messages : {}}
+
   refreshMessages() {
     $.getJSON(uiAddress + '/message', function(data) {
       this.setState(({messages}) => ({messages: data}))
@@ -121,12 +121,35 @@ class MessagesBox extends Component {
 
   componentDidMount(){
     this.refreshMessages();
-    setInterval(() => this.refreshMessages(), 5*1000)
+    setInterval(() => this.refreshMessages(), 1*1000)
   }
+
+  printNodeMessages() {
+    var items = [];
+    for (var node in this.state.messages){
+      var numMessages = Object.keys(this.state.messages[node]).length
+      for (let _id = 1; _id <= numMessages; _id++){
+        var message = this.state.messages[node][_id]
+        items.push(html`<div class="message">
+                        <div style="width: 200px; float: left; font-family: monospace">${node}</div>
+                        <div>${message}</div>
+                        </div>`)
+      }
+    }
+    return items
+  }
+
   render () {
     return html`
         <section>
-            <div style="font-weight: bold;">Messages</div>
+            <div style="font-weight: bold; margin-bottom: 20px">Messages</div>
+            <div style="margin-bottom: 15px; border-bottom: 2px dotted">
+                <div style="width: 200px;float: left; font-family: monospace">From</div>
+                <div>Message</div>
+            </div>
+            <div class="messages">
+                ${this.printNodeMessages()}        
+            </div>
         </section>
     `
   }
@@ -140,6 +163,7 @@ class ChatBox extends Component {
   }
 
   handleSubmit(event){
+    event.preventDefault()
     $.ajax({
       type: 'POST',
       url: uiAddress + '/message',
@@ -149,13 +173,13 @@ class ChatBox extends Component {
       dataType: 'json'
     });
     this.setState(({message}) => ({message : ""}));
-    event.preventDefault()
   }
+
   render () {
     return html `
         <div style="font-weight: bold">Chat Box</div>
         <hr style="border-top: 2px"/>
-        <form style="width: 100px" onSubmit=${this.handleSubmit.bind(this)}>
+        <form style="width: 70px" onSubmit=${this.handleSubmit.bind(this)}>
             <textarea value=${this.state.message} onChange=${this.handleChange.bind(this)} style="background: white; resize: none; height:150px; width: 270%"/>
             <input type="submit" value="Send" class="button"/>
         </form>
@@ -171,7 +195,7 @@ class App extends Component {
         <h1 style="padding-left: 50px">Peerster Application</h1>
       </header>
       
-      <section style="padding-left: 100px">
+      <section>
         <div class="wrapper">
           <div class="box a"><${Node}/></div>
           <div class="box b"><${MessagesBox}/></div>
