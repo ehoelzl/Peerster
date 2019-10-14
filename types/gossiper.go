@@ -56,7 +56,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 	go utils.NewTicker(func() {
 		randomNode := gossiper.Nodes.RandomNode(nil)
 		if randomNode != nil {
-			gossiper.SendStatusMessage(randomNode)
+			go gossiper.SendStatusMessage(randomNode)
 		}
 	}, time.Duration(antiEntropy))
 

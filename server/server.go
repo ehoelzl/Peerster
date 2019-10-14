@@ -20,12 +20,13 @@ type Server struct {
 func (s *Server) GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	messageMap := make(map[string][]string)
+	messageMap := make(map[string]map[uint32]string)
 	for identifier, p := range s.Gossiper.Peers.Peers {
-		if len(p.Messages) > 0 {
-			var messages []string
-			for _, m := range p.Messages {
-				messages = append(messages, m.Text)
+		numMessages := len(p.Messages)
+		if numMessages > 0 {
+			messages := make(map[uint32]string)
+			for i := 1; i <= numMessages; i ++ {
+				messages[uint32(i)] = p.Messages[uint32(i)].Text
 			}
 			messageMap[identifier] = messages
 		}
