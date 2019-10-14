@@ -1,4 +1,4 @@
-package server
+package main
 
 import (
 	"encoding/json"
@@ -25,7 +25,7 @@ func (s *Server) GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 		numMessages := len(p.Messages)
 		if numMessages > 0 {
 			messages := make(map[uint32]string)
-			for i := 1; i <= numMessages; i ++ {
+			for i := 1; i <= numMessages; i++ {
 				messages[uint32(i)] = p.Messages[uint32(i)].Text
 			}
 			messageMap[identifier] = messages
@@ -53,7 +53,7 @@ func (s *Server) GetNodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) GetIdHandler(w http.ResponseWriter, r *http.Request){
+func (s *Server) GetIdHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	response := make(map[string]string)
 	response["gossipAddress"] = s.Gossiper.GossipAddress.String()
@@ -107,11 +107,13 @@ func NewServer(addr string, gossiper *Gossiper) {
 	}
 
 	r := mux.NewRouter()
+
 	r.HandleFunc("/message", server.GetMessageHandler).Methods("GET")
 	r.HandleFunc("/node", server.GetNodeHandler).Methods("GET")
 	r.HandleFunc("/message", server.PostMessageHandler).Methods("POST")
 	r.HandleFunc("/node", server.PostNodeHandler).Methods("POST")
 	r.HandleFunc("/id", server.GetIdHandler).Methods("GET")
+	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./frontend/")))
 	handler := cors.Default().Handler(r)
 	srv := &http.Server{
 		Handler: handler,
@@ -123,7 +125,6 @@ func NewServer(addr string, gossiper *Gossiper) {
 	log.Printf("Starting server at %v\n", addr)
 
 	err := srv.ListenAndServe()
-	print("caca")
 	if err != nil {
 		log.Println("Error starting server")
 	}

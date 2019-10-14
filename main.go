@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"github.com/dedis/protobuf"
-	. "github.com/ehoelzl/Peerster/server"
 	. "github.com/ehoelzl/Peerster/types"
 	"log"
 )
