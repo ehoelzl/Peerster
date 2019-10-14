@@ -1,14 +1,14 @@
 package utils
 
 import (
-	"fmt"
+	"log"
 	"math/rand"
 	"time"
 )
 
 func CheckError(err error, msg string) {
 	if err != nil {
-		fmt.Println(msg)
+		log.Println(msg)
 	}
 }
 

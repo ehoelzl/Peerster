@@ -2,10 +2,10 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/dedis/protobuf"
 	. "github.com/ehoelzl/Peerster/types"
 	"github.com/ehoelzl/Peerster/utils"
+	"log"
 	"net"
 )
 
@@ -13,7 +13,7 @@ func main() {
 	uiPort := flag.String("UIPort", "8080", "port for the UI client (default \"8080\")")
 	msg := flag.String("msg", "", "message to be sent (REQUIRED)")
 	flag.Parse()
-	fmt.Printf("Message %v to be sent to %v\n", *msg, *uiPort)
+	log.Printf("Message %v to be sent to %v\n", *msg, *uiPort)
 
 	message := Message{Text: *msg}
 	packetBytes, err := protobuf.Encode(&message)

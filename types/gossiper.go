@@ -35,7 +35,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 	gossipAddr, err := net.ResolveUDPAddr("udp4", gossipAddress)
 	gossipConn, err := net.ListenUDP("udp4", gossipAddr)
 	utils.CheckError(err, fmt.Sprintf("Error when opening gossip UDP channel for %v\n", name))
-	fmt.Printf("Starting gossiper %v\n UIAddress: %v\n GossipAddress %v\n Peers %v\n\n", name, clientAddr, gossipAddr, initialPeers)
+	log.Printf("Starting gossiper %v\n UIAddress: %v\n GossipAddress %v\n Peers %v\n\n", name, clientAddr, gossipAddr, initialPeers)
 
 	peers := NewPeers()
 	peers.AddPeer(name)
@@ -101,7 +101,6 @@ func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 		except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
 		go gp.StartRumormongering(rumor, except, false)
 	}
-	fmt.Println()
 }
 
 func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) {
@@ -119,7 +118,7 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 		fmt.Printf("IN SYNC WITH %v\n", from.String())
 		if isAck{
 			flip := utils.CoinFlip()
-			fmt.Printf("Is Ack: flip ? %v\n", flip)
+			log.Printf("Is Ack: flip ? %v\n", flip)
 			gp.BufferLock.RLock()
 			lastMessage, ok := gp.Buffer[from.String()]
 			gp.BufferLock.RUnlock()
@@ -137,7 +136,6 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 			go gp.SendStatusMessage(from)
 		}
 	}
-	fmt.Println()
 }
 
 func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packet *GossipPacket) {
@@ -163,7 +161,7 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packet *GossipPacket) 
 		} else if status := packet.Status; status != nil {
 			go gp.HandleStatusPacket(from, status)
 		} else {
-			fmt.Printf("Empty packet from %v\n", from.String())
+			log.Printf("Empty packet from %v\n", from.String())
 		}
 	}
 }
@@ -176,10 +174,10 @@ func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, statu
 	if err == nil {
 		_, err = gp.GossipConn.WriteToUDP(gossipPacket, to)
 		if err != nil {
-			fmt.Printf("Error sending gossipPacket from node %v to node %v\n", gp.GossipAddress.String(), to.String())
+			log.Printf("Error sending gossipPacket from node %v to node %v\n", gp.GossipAddress.String(), to.String())
 		}
 	} else {
-		fmt.Printf("Error encoding gossipPacket for %v\n", to.String())
+		log.Printf("Error encoding gossipPacket for %v\n", to.String())
 	}
 }
 
@@ -234,7 +232,6 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 			gp.Tickers.DeleteTicker(randomNode)
 		}
 		gp.SendRumorMessage(message, randomNode, callback)
-		fmt.Println()
 	}
 }
 

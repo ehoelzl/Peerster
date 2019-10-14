@@ -2,10 +2,10 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/dedis/protobuf"
 	. "github.com/ehoelzl/Peerster/server"
 	. "github.com/ehoelzl/Peerster/types"
+	"log"
 )
 
 func StartClientListener(gp *Gossiper) {
@@ -20,10 +20,10 @@ func StartClientListener(gp *Gossiper) {
 			if err == nil {
 				go gp.HandleClientMessage(packet)
 			} else {
-				fmt.Println("Error decoding packet from client")
+				log.Println("Error decoding packet from client")
 			}
 		} else {
-			fmt.Println("Error reading from UDP from client Port")
+			log.Println("Error reading from UDP from client Port")
 		}
 	}
 }
@@ -40,10 +40,10 @@ func StartGossipListener(gp *Gossiper) {
 			if err == nil {
 				go gp.HandleGossipPacket(udpAddr, packet)
 			} else {
-				fmt.Printf("Error decoding packet from %v\n", udpAddr.String())
+				log.Printf("Error decoding packet from %v\n", udpAddr.String())
 			}
 		} else {
-			fmt.Printf("Error reading from UDP from %v\n", udpAddr.String())
+			log.Printf("Error reading from UDP from %v\n", udpAddr.String())
 		}
 	}
 }
@@ -57,9 +57,10 @@ func main() {
 	antiEntropy := flag.Uint("antiEntropy", 10, "AntiEntropy value (default 10 seconds)")
 
 	flag.Parse()
-	address := "127.0.0.1:" + *uiPort
-	gp := NewGossiper(address, *gossipAddr, *name, *peers, *simple, *antiEntropy)
+	CLIAddress := "127.0.0.1:" + *uiPort
+	GUIListen := "127.0.0.1:8080"
+	gp := NewGossiper(CLIAddress, *gossipAddr, *name, *peers, *simple, *antiEntropy)
+	go 	NewServer(GUIListen, gp)
 	go StartGossipListener(gp)
-	go StartClientListener(gp)
-	NewServer(address, gp)
+	StartClientListener(gp)
 }

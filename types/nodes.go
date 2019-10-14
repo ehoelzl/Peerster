@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"net"
 	"strings"
@@ -19,7 +20,7 @@ func NewNodes(addresses string) *Nodes {
 		for _, peer := range strings.Split(addresses, ",") {
 			peerAddr, err := net.ResolveUDPAddr("udp4", peer)
 			if err != nil {
-				fmt.Printf("Could not resolve peer address at %v\n", peer)
+				log.Printf("Could not resolve peer address at %v\n", peer)
 			} else {
 				peerAddresses = append(peerAddresses, peerAddr)
 			}

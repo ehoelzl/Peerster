@@ -2,9 +2,9 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	. "github.com/ehoelzl/Peerster/types"
 	"github.com/gorilla/mux"
+	"github.com/rs/cors"
 	"io"
 	"log"
 	"net"
@@ -52,6 +52,18 @@ func (s *Server) GetNodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) GetIdHandler(w http.ResponseWriter, r *http.Request){
+	w.WriteHeader(http.StatusOK)
+	response := make(map[string]string)
+	response["gossipAddress"] = s.Gossiper.GossipAddress.String()
+	response["name"] = s.Gossiper.Name
+	jsonString, _ := json.Marshal(response)
+	_, err := io.WriteString(w, string(jsonString))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func (s *Server) PostMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	decoder := json.NewDecoder(r.Body)
@@ -66,21 +78,23 @@ func (s *Server) PostMessageHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) PostNodeHandler(w http.ResponseWriter, r *http.Request) {
-	decoder := json.NewDecoder(r.Body)
+	//setUpCors(&w, r)
 
+	decoder := json.NewDecoder(r.Body)
 	var newNode Message
 	err := decoder.Decode(&newNode)
 
 	if err != nil {
-		fmt.Println("Could not encode message from client")
+		log.Println("Could not decode packet from GUI")
 	} else {
 		nodeAddress, err := net.ResolveUDPAddr("udp4", newNode.Text)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Printf("Could not resolve address %v, added by user\n", newNode.Text)
+			log.Printf("Could not resolve address %v, added by user\n", newNode.Text)
 		} else {
 			w.WriteHeader(http.StatusOK)
 			go s.Gossiper.Nodes.AddNode(nodeAddress)
+			log.Printf("Added new node at %v\n", nodeAddress)
 		}
 	}
 }
@@ -96,14 +110,20 @@ func NewServer(addr string, gossiper *Gossiper) {
 	r.HandleFunc("/node", server.GetNodeHandler).Methods("GET")
 	r.HandleFunc("/message", server.PostMessageHandler).Methods("POST")
 	r.HandleFunc("/node", server.PostNodeHandler).Methods("POST")
-
+	r.HandleFunc("/id", server.GetIdHandler).Methods("GET")
+	handler := cors.Default().Handler(r)
 	srv := &http.Server{
-		Handler: r,
+		Handler: handler,
 		Addr:    addr,
 		// Good practice: enforce timeouts for servers you create!
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}
 	log.Printf("Starting server at %v\n", addr)
-	log.Fatal(srv.ListenAndServe())
+
+	err := srv.ListenAndServe()
+	print("caca")
+	if err != nil {
+		log.Println("Error starting server")
+	}
 }
