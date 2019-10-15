@@ -14,6 +14,8 @@ body {
   grid-template-columns: auto auto auto;
   background-color: #ffffff;
   color: #444;
+  margin-right: -300px;
+  margin-left: 100px;
 }
 
 .box {
@@ -31,7 +33,7 @@ body {
 .b {
   grid-column: 3 / span 2;
   grid-row: 1 / span 2;
-  width: 700px;
+  width: 500px;
 }
 .c {
   grid-column: 1 ;
@@ -76,5 +78,7 @@ hr {
 }
 .messages{
   font-size: 15px;
-  max-height: 500px;
+  max-height: 400px;
+  overflow-y: scroll;
+  text-align: left;
 }

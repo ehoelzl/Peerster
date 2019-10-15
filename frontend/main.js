@@ -135,6 +135,7 @@ class MessagesBox extends Component {
                         <div>${message}</div>
                         </div>`)
       }
+      items.push(html`<hr style="border-top: 1px dotted"/>`)
     }
     return items
   }
@@ -179,7 +180,7 @@ class ChatBox extends Component {
     return html `
         <div style="font-weight: bold">Chat Box</div>
         <hr style="border-top: 2px"/>
-        <form style="width: 70px" onSubmit=${this.handleSubmit.bind(this)}>
+        <form style="width: 100px" onSubmit=${this.handleSubmit.bind(this)}>
             <textarea value=${this.state.message} onChange=${this.handleChange.bind(this)} style="background: white; resize: none; height:150px; width: 270%"/>
             <input type="submit" value="Send" class="button"/>
         </form>
