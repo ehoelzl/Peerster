@@ -123,7 +123,7 @@ func NewServer(addr string, gossiper *Gossiper) {
 		ReadTimeout:  15 * time.Second,
 	}
 	log.Printf("Starting server at %v\n", addr)
-
+	log.Printf("WebClient available at http://%v/\n", addr)
 	err := srv.ListenAndServe()
 	if err != nil {
 		log.Println("Error starting server")
