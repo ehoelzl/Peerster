@@ -123,9 +123,6 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 			lastMessage, ok := gp.Buffer[from.String()]
 			gp.BufferLock.RUnlock()
 			if ok && flip { // If we have a previous message and got heads
-				gp.BufferLock.Lock()
-				delete(gp.Buffer, from.String())
-				gp.BufferLock.Unlock()
 				except := map[string]struct{}{from.String(): struct{}{}}
 				go gp.StartRumormongering(lastMessage, except, true)
 			}
