@@ -60,6 +60,19 @@ func (peers *GossipPeers) AddRumorMessage(rumor *RumorMessage) bool {
 	return messageAdded
 }
 
+func (peers *GossipPeers) CheckNewRumor(rumor *RumorMessage) bool {
+	peers.Lock.RLock()
+
+	messageAdded := false
+	if elem, ok := peers.Peers[rumor.Origin]; (ok && elem.NextID == rumor.ID) || !ok {
+		peers.Lock.RUnlock()
+		messageAdded = peers.AddRumorMessage(rumor)
+	} else {
+		peers.Lock.RUnlock()
+	}
+	return messageAdded
+}
+
 func (peers *GossipPeers) GetStatusMessage() []PeerStatus {
 	peers.Lock.RLock()
 	defer peers.Lock.RUnlock()
