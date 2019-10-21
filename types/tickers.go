@@ -1,53 +1,48 @@
 package types
 
 import (
-	"log"
+	"fmt"
 	"net"
 	"sync"
 	"time"
 )
 
 type Tickers struct {
-	tickers map[string]chan bool
+	tickers map[string]*time.Ticker
 	Lock    sync.Mutex
 }
 
-func NewPeerTimer(address *net.UDPAddr, callback func(), seconds time.Duration) chan bool {
-	receivedAck := make(chan bool) // Create chanel for bool
+func NewPeerTimer(address *net.UDPAddr, callback func(), seconds time.Duration) *time.Ticker {
+	ticker := time.NewTicker(seconds * time.Second)
+
 	go func() {
-		ticker := time.NewTicker(seconds * time.Second)
 		for {
 			select {
-			case <-receivedAck:
-				ticker.Stop()
-				return
 			case <-ticker.C:
-				log.Printf("TIMEMOUT for %v\n", address.String())
+				fmt.Printf("TIMEMOUT for %v\n", address.String())
 				if callback != nil {
-					callback()
-				} else {
-					ticker.Stop()
+					go callback()
 				}
-				return
+				ticker.Stop()
 			}
 		}
 	}()
-	return receivedAck
+	return ticker
 }
 
 func NewTickers() *Tickers {
 	return &Tickers{
-		tickers: make(map[string]chan bool),
+		tickers: make(map[string]*time.Ticker),
 		Lock:    sync.Mutex{},
 	}
 }
 
 func (ticks *Tickers) DeleteTicker(address *net.UDPAddr) bool {
 	ticks.Lock.Lock()
-	ticks.Lock.Unlock()
+	defer ticks.Lock.Unlock()
 	deleted := false
 	if elem, ok := ticks.tickers[address.String()]; ok {
-		close(elem)
+		elem.Stop()
 		delete(ticks.tickers, address.String())
 		deleted = true
 	}
@@ -57,6 +52,10 @@ func (ticks *Tickers) DeleteTicker(address *net.UDPAddr) bool {
 func (ticks *Tickers) AddTicker(address *net.UDPAddr, callback func(), seconds time.Duration) {
 	ticks.Lock.Lock()
 	defer ticks.Lock.Unlock()
+	if elem, ok := ticks.tickers[address.String()]; ok {
+		elem.Stop()
+		delete(ticks.tickers, address.String())
+	}
 	ticks.tickers[address.String()] = NewPeerTimer(address, callback, seconds)
 }
 
