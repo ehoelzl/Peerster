@@ -75,8 +75,8 @@ func (gp *Gossiper) HandleClientMessage(message *Message) {
 			OriginalName:  gp.Name,
 			RelayPeerAddr: gp.GossipAddress.String(),
 			Contents:      message.Text,
-		} // TODO : add message
-		go gp.SimpleBroadcast(simpleMessage, nil)
+		}
+		gp.SimpleBroadcast(simpleMessage, nil)
 	} else {
 		message := &RumorMessage{
 			Origin: gp.Name,
@@ -85,55 +85,7 @@ func (gp *Gossiper) HandleClientMessage(message *Message) {
 		}
 		messageAdded := gp.Peers.AddRumorMessage(message) // Usually, message is always added
 		if messageAdded {                           //Rumor Only if message was added (i.e. never seen before and is coherent with NextID)
-			go gp.StartRumormongering(message, nil, false)
-		}
-	}
-}
-
-func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
-	// Assumes rumor is not nil
-	fmt.Printf("RUMOR origin %v from %v ID %v contents %v\n", rumor.Origin, from.String(), rumor.ID, rumor.Text)
-	gp.Nodes.Print()
-
-	messageAdded := gp.Peers.AddRumorMessage(rumor) // Add message to list
-	go gp.SendStatusMessage(from)             // Send back ack
-	if messageAdded {                         // If message was not seen before, continue rumor mongering to other nodes
-		except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
-		go gp.StartRumormongering(rumor, except, false)
-	}
-}
-
-func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) {
-	// Assumes status is not nil
-	status.PrintStatusMessage(from)
-	gp.Nodes.Print()
-
-	isAck := gp.Tickers.DeleteTicker(from)
-
-	missing := gp.Peers.GetTheirMissingMessage(status)
-	isMissing := gp.Peers.IsMissingMessage(status)
-	inSync := missing == nil && !isMissing
-
-	if inSync {
-		fmt.Printf("IN SYNC WITH %v\n", from.String())
-		if isAck{
-			flip := utils.CoinFlip()
-			log.Printf("Is Ack: flip ? %v\n", flip)
-			gp.BufferLock.RLock()
-			lastMessage, ok := gp.Buffer[from.String()]
-			gp.BufferLock.RUnlock()
-			if ok && flip { // If we have a previous message and got heads
-				except := map[string]struct{}{from.String(): struct{}{}}
-				go gp.StartRumormongering(lastMessage, except, true)
-			}
-		}
-
-
-	} else {
-		if missing != nil {
-			go gp.SendRumorMessage(missing, from, nil)
-		} else if isMissing {
-			go gp.SendStatusMessage(from)
+			gp.StartRumormongering(message, nil, false)
 		}
 	}
 }
@@ -154,14 +106,63 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packet *GossipPacket) 
 		gp.Nodes.Print()
 
 		packet.Simple.RelayPeerAddr = gp.GossipAddress.String()
-		go gp.SimpleBroadcast(packet.Simple, from)
+		gp.SimpleBroadcast(packet.Simple, from)
 	} else {
 		if rumor := packet.Rumor; rumor != nil {
-			go gp.HandleRumorMessage(from, rumor)
+			gp.HandleRumorMessage(from, rumor)
 		} else if status := packet.Status; status != nil {
-			go gp.HandleStatusPacket(from, status)
+			gp.HandleStatusPacket(from, status)
 		} else {
 			log.Printf("Empty packet from %v\n", from.String())
+		}
+	}
+}
+
+func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
+	// Assumes rumor is not nil
+	fmt.Printf("RUMOR origin %v from %v ID %v contents %v\n", rumor.Origin, from.String(), rumor.ID, rumor.Text)
+	gp.Nodes.Print()
+
+	messageAdded := gp.Peers.AddRumorMessage(rumor) // Add message to list
+	gp.SendStatusMessage(from)             // Send back ack
+	if messageAdded {                         // If message was not seen before, continue rumor mongering to other nodes
+		except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
+		gp.StartRumormongering(rumor, except, false)
+	}
+}
+
+func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) {
+	// Assumes status is not nil
+	status.PrintStatusMessage(from)
+	gp.Nodes.Print()
+
+	isAck := gp.Tickers.DeleteTicker(from)
+
+	missing := gp.Peers.GetTheirMissingMessage(status)
+	isMissing := gp.Peers.IsMissingMessage(status)
+	inSync := missing == nil && !isMissing
+
+	if inSync {
+		fmt.Printf("IN SYNC WITH %v\n", from.String())
+		if isAck{
+			flip := utils.CoinFlip()
+			//log.Printf("Is Ack: flip ? %v\n", flip)
+			gp.BufferLock.RLock()
+			lastMessage, ok := gp.Buffer[from.String()]
+			gp.BufferLock.RUnlock()
+
+			if ok && flip { // If we have a previous message and got heads
+				except := map[string]struct{}{from.String(): struct{}{}}
+				gp.StartRumormongering(lastMessage, except, true)
+			}
+		}
+
+
+	} else {
+		if missing != nil {
+			gp.SendRumorMessage(missing, from, nil)
+		} else if isMissing {
+			gp.SendStatusMessage(from)
 		}
 	}
 }
@@ -185,7 +186,7 @@ func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 	// Creates the vector clock for the given peer
 	statusMessages := gp.Peers.GetStatusMessage()
 	statusPacket := &StatusPacket{Want: statusMessages}
-	go gp.SendPacket(nil, nil, statusPacket, to)
+	gp.SendPacket(nil, nil, statusPacket, to)
 	//log.Printf("Sent status to %v\n\n", to.String())
 }
 
@@ -196,7 +197,7 @@ func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) 
 
 	for _, nodeAddr := range gp.Nodes.Addresses {
 		if nodeAddr.String() != except.String() {
-			go gp.SendPacket(packet, nil, nil, nodeAddr)
+			gp.SendPacket(packet, nil, nil, nodeAddr)
 		}
 	}
 }
