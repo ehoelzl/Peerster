@@ -42,8 +42,8 @@ func (s *Server) GetNodeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	var nodesString []string
-	for _, n := range s.Gossiper.Nodes.Addresses {
-		nodesString = append(nodesString, n.String())
+	for n, _ := range s.Gossiper.Nodes.Addresses {
+		nodesString = append(nodesString, n)
 	}
 
 	jsonString, _ := json.Marshal(nodesString)

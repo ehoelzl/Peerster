@@ -60,19 +60,6 @@ func (peers *GossipPeers) AddRumorMessage(rumor *RumorMessage) bool {
 	return messageAdded
 }
 
-func (peers *GossipPeers) CheckNewRumor(rumor *RumorMessage) bool {
-	peers.Lock.RLock()
-
-	messageAdded := false
-	if elem, ok := peers.Peers[rumor.Origin]; (ok && elem.NextID == rumor.ID) || !ok {
-		peers.Lock.RUnlock()
-		messageAdded = peers.AddRumorMessage(rumor)
-	} else {
-		peers.Lock.RUnlock()
-	}
-	return messageAdded
-}
-
 func (peers *GossipPeers) GetStatusMessage() []PeerStatus {
 	peers.Lock.RLock()
 	defer peers.Lock.RUnlock()
@@ -109,12 +96,12 @@ func (peers *GossipPeers) GetTheirMissingMessage(statusPacket *StatusPacket) *Ru
 }
 
 func (peers *GossipPeers) IsMissingMessage(status *StatusPacket) bool {
-	peers.Lock.Lock()
-	defer peers.Lock.Unlock()
+	peers.Lock.RLock()
+	defer peers.Lock.RUnlock()
 
 	for _, status := range status.Want {
 		if _, ok := peers.Peers[status.Identifier]; !ok { // If peer not present, create new peer
-			peers.Peers[status.Identifier] = newPeer()
+			return status.NextID > 1
 		}
 		elem := peers.Peers[status.Identifier]
 		if elem.NextID < status.NextID {

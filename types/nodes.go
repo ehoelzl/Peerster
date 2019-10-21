@@ -2,32 +2,38 @@ package types
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
 	"net"
 	"strings"
 	"sync"
 )
 
+type Node struct {
+	LastStatus chan *StatusPacket
+	IsOpen     bool
+	udpAddr    *net.UDPAddr
+}
 type Nodes struct {
-	Addresses []*net.UDPAddr
+	Addresses map[string]*Node
 	Lock      sync.RWMutex
 }
 
 func NewNodes(addresses string) *Nodes {
-	var peerAddresses []*net.UDPAddr
+	nodes := make(map[string]*Node)
 	if len(addresses) > 0 {
-		for _, peer := range strings.Split(addresses, ",") {
-			peerAddr, err := net.ResolveUDPAddr("udp4", peer)
-			if err != nil {
-				log.Printf("Could not resolve peer address at %v\n", peer)
-			} else {
-				peerAddresses = append(peerAddresses, peerAddr)
+		for _, address := range strings.Split(addresses, ",") {
+			peerAddr, err := net.ResolveUDPAddr("udp4", address)
+			if err == nil {
+				nodes[peerAddr.String()] = &Node{
+					LastStatus: make(chan *StatusPacket),
+					IsOpen:     false,
+					udpAddr:    peerAddr,
+				}
 			}
 		}
 	}
 	return &Nodes{
-		Addresses: peerAddresses,
+		Addresses: nodes,
 		Lock:      sync.RWMutex{},
 	}
 }
@@ -37,22 +43,26 @@ func (nodes *Nodes) AddNode(address *net.UDPAddr) {
 	nodes.Lock.Lock()
 	defer nodes.Lock.Unlock()
 
-	for _, nodeAddr := range nodes.Addresses {
-		if nodeAddr.String() == address.String() {
+	for nodeAddr, _ := range nodes.Addresses {
+		if nodeAddr == address.String() {
 			return
 		}
 	}
-	nodes.Addresses = append(nodes.Addresses, address)
+	nodes.Addresses[address.String()] = &Node{
+		LastStatus: make(chan *StatusPacket),
+		IsOpen:     false,
+		udpAddr:    address,
+	}
 }
 
 func (nodes *Nodes) RandomNode(except map[string]struct{}) *net.UDPAddr {
 	// Returns a random address from the list of Addresses
 	var toKeep []*net.UDPAddr
 	nodes.Lock.RLock()
-	for _, address := range nodes.Addresses {
-		_, noSkip := except[address.String()] // If address in `except`
+	for nodeAddr, node := range nodes.Addresses {
+		_, noSkip := except[nodeAddr] // If address in `except`
 		if except == nil || !noSkip {
-			toKeep = append(toKeep, address) // If the address of the peer is different than `except` we add it to the list
+			toKeep = append(toKeep, node.udpAddr) // If the address of the peer is different than `except` we add it to the list
 		}
 	}
 	nodes.Lock.RUnlock()
@@ -69,9 +79,38 @@ func (nodes *Nodes) Print() {
 	nodes.Lock.RLock()
 	defer nodes.Lock.RUnlock()
 
-	for _, peerAddr := range nodes.Addresses {
-		stringAddresses = append(stringAddresses, peerAddr.String())
+	for peerAddr, _ := range nodes.Addresses {
+		stringAddresses = append(stringAddresses, peerAddr)
 	}
 
 	fmt.Printf("PEERS %v\n", strings.Join(stringAddresses, ","))
+}
+
+func (nodes *Nodes) CloseChannel(address *net.UDPAddr) {
+	nodes.Lock.Lock()
+	defer nodes.Lock.Unlock()
+	if elem, ok := nodes.Addresses[address.String()]; ok {
+		if elem.IsOpen {
+			elem.IsOpen = false
+			//close(elem.LastStatus)
+			//elem.LastStatus = nil
+		}
+	}
+}
+
+func (nodes *Nodes) OpenChannel(address *net.UDPAddr) {
+	nodes.Lock.Lock()
+	defer nodes.Lock.Unlock()
+	if elem, ok := nodes.Addresses[address.String()]; ok {
+		if !elem.IsOpen {
+			elem.IsOpen = true
+			//elem.LastStatus = make(chan *StatusPacket)
+		}
+	}
+}
+
+func (nodes *Nodes) IsOpen(address *net.UDPAddr) bool{
+	nodes.Lock.RLock()
+	defer nodes.Lock.RUnlock()
+	return nodes.Addresses[address.String()].IsOpen
 }
