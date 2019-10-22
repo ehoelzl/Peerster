@@ -53,11 +53,3 @@ func (sp *StatusPacket) ToMap() map[string]uint32 {
 	}
 	return statusMap
 }
-
-func (sp *StatusPacket) IsAckFor(message *RumorMessage) bool {
-	statusMap := sp.ToMap()
-	if elem, ok := statusMap[message.Origin]; ok {
-		return elem > message.ID
-	}
-	return false
-}

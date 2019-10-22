@@ -16,8 +16,10 @@ func StartClientListener(gp *Gossiper) {
 		n, _, err := gp.ClientConn.ReadFromUDP(packetBytes)
 		if err == nil {
 			err = protobuf.Decode(packetBytes[0:n], packet)
-			if err == nil {
+			if err == nil && packet != nil {
 				go gp.HandleClientMessage(packet)
+			} else if packet == nil {
+				log.Println("Got nil packet from client")
 			} else {
 				log.Println("Error decoding packet from client")
 			}
@@ -36,8 +38,10 @@ func StartGossipListener(gp *Gossiper) {
 		n, udpAddr, err := gp.GossipConn.ReadFromUDP(packetBytes)
 		if err == nil {
 			err = protobuf.Decode(packetBytes[0:n], packet)
-			if err == nil {
+			if err == nil && packet != nil {
 				go gp.HandleGossipPacket(udpAddr, packet)
+			} else if packet == nil {
+				log.Printf("Got nil packet from %v\n", udpAddr.String())
 			} else {
 				log.Printf("Error decoding packet from %v\n", udpAddr.String())
 			}
@@ -59,7 +63,7 @@ func main() {
 	CLIAddress := "127.0.0.1:" + *uiPort
 	GUIListen := "127.0.0.1:8080"
 	gp := NewGossiper(CLIAddress, *gossipAddr, *name, *peers, *simple, *antiEntropy)
-	go 	NewServer(GUIListen, gp)
+	go NewServer(GUIListen, gp)
 	go StartGossipListener(gp)
 	StartClientListener(gp)
 }

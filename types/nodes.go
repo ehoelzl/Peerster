@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"net"
 	"strings"
@@ -9,9 +10,8 @@ import (
 )
 
 type Node struct {
-	LastStatus chan *StatusPacket
-	IsOpen     bool
-	udpAddr    *net.UDPAddr
+	Channels map[*RumorMessage]chan *StatusPacket
+	udpAddr  *net.UDPAddr
 }
 type Nodes struct {
 	Addresses map[string]*Node
@@ -25,9 +25,8 @@ func NewNodes(addresses string) *Nodes {
 			peerAddr, err := net.ResolveUDPAddr("udp4", address)
 			if err == nil {
 				nodes[peerAddr.String()] = &Node{
-					LastStatus: make(chan *StatusPacket),
-					IsOpen:     false,
-					udpAddr:    peerAddr,
+					Channels: make(map[*RumorMessage]chan *StatusPacket),
+					udpAddr:  peerAddr,
 				}
 			}
 		}
@@ -49,9 +48,8 @@ func (nodes *Nodes) AddNode(address *net.UDPAddr) {
 		}
 	}
 	nodes.Addresses[address.String()] = &Node{
-		LastStatus: make(chan *StatusPacket),
-		IsOpen:     false,
-		udpAddr:    address,
+		Channels: make(map[*RumorMessage]chan *StatusPacket),
+		udpAddr:  address,
 	}
 }
 
@@ -86,31 +84,51 @@ func (nodes *Nodes) Print() {
 	fmt.Printf("PEERS %v\n", strings.Join(stringAddresses, ","))
 }
 
-func (nodes *Nodes) CloseChannel(address *net.UDPAddr) {
+func (nodes *Nodes) RegisterChannel(address *net.UDPAddr, rumor *RumorMessage, channel chan *StatusPacket) {
+	// Registers the given channel for the given message
 	nodes.Lock.Lock()
 	defer nodes.Lock.Unlock()
-	if elem, ok := nodes.Addresses[address.String()]; ok {
-		if elem.IsOpen {
-			elem.IsOpen = false
-			//close(elem.LastStatus)
-			//elem.LastStatus = nil
+	if node, ok := nodes.Addresses[address.String()]; ok {
+		if ch, ok := node.Channels[rumor]; ok { // If we already have a channel for this rumor, node, close it
+			close(ch)
 		}
+		nodes.Addresses[address.String()].Channels[rumor] = channel
 	}
 }
 
-func (nodes *Nodes) OpenChannel(address *net.UDPAddr) {
+func (nodes *Nodes) DeleteChannel(address *net.UDPAddr, rumor *RumorMessage) {
 	nodes.Lock.Lock()
 	defer nodes.Lock.Unlock()
-	if elem, ok := nodes.Addresses[address.String()]; ok {
-		if !elem.IsOpen {
-			elem.IsOpen = true
-			//elem.LastStatus = make(chan *StatusPacket)
+	if node, ok := nodes.Addresses[address.String()]; ok {
+		if ch, ok := node.Channels[rumor]; ok {
+			close(ch)
+			delete(nodes.Addresses[address.String()].Channels, rumor)
 		}
+		log.Println(nodes.Addresses[address.String()])
 	}
 }
 
-func (nodes *Nodes) IsOpen(address *net.UDPAddr) bool{
-	nodes.Lock.RLock()
-	defer nodes.Lock.RUnlock()
-	return nodes.Addresses[address.String()].IsOpen
+func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr, status *StatusPacket) bool {
+	nodes.Lock.Lock()
+	defer nodes.Lock.Unlock()
+
+	statusMap := status.ToMap()
+	var toDelete []*RumorMessage
+	if node, ok := nodes.Addresses[address.String()]; ok {
+
+		for rumor, ch := range node.Channels { // iterate over all channels for this node
+			if elem, ok := statusMap[rumor.Origin]; ok { // Means the rumor's origin is in statusMap
+				if elem > rumor.ID { // Means this rumor is acked
+					ch <- status
+					toDelete = append(toDelete, rumor)
+				}
+			}
+		}
+
+		for _, r := range toDelete {
+			close(node.Channels[r])
+			delete(node.Channels, r)
+		}
+	}
+	return len(toDelete) > 0
 }
