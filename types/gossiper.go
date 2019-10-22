@@ -24,11 +24,14 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 	// Creates new gossiper with the given parameters
 	clientAddr, err := net.ResolveUDPAddr("udp4", uiAddress)
 	clientConn, err := net.ListenUDP("udp4", clientAddr) // Connection to client
-	utils.CheckError(err, fmt.Sprintf("Error when opening client UDP channel for %v\n", name))
+	utils.CheckFatalError(err, fmt.Sprintf("Error when opening client UDP channel for %v\n", name))
+
 
 	gossipAddr, err := net.ResolveUDPAddr("udp4", gossipAddress)
 	gossipConn, err := net.ListenUDP("udp4", gossipAddr)
-	utils.CheckError(err, fmt.Sprintf("Error when opening gossip UDP channel for %v\n", name))
+	utils.CheckFatalError(err, fmt.Sprintf("Error when opening gossip UDP channel for %v\n", name))
+	err = gossipConn.SetReadBuffer(1000)
+	utils.CheckFatalError(err, fmt.Sprintf("Could not set read buffer for %v\n", name))
 	log.Printf("Starting gossiper %v\n UIAddress: %v\n GossipAddress %v\n Peers %v\n\n", name, clientAddr, gossipAddr, initialPeers)
 
 	peers := NewPeers()
@@ -44,12 +47,12 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		Peers:         peers,
 	}
 
-	go utils.NewTicker(func() {
+/*	go utils.NewTicker(func() {
 		randomNode := gossiper.Nodes.RandomNode(nil)
 		if randomNode != nil {
 			gossiper.SendStatusMessage(randomNode)
 		}
-	}, time.Duration(antiEntropy))
+	}, time.Duration(antiEntropy))*/
 
 	return gossiper
 }
@@ -199,11 +202,11 @@ func (gp *Gossiper) MongerMessage(node *net.UDPAddr, message *RumorMessage, exce
 	channel := make(chan bool)
 
 	gp.Nodes.RegisterChannel(node, message, channel)
-	defer tick.Stop()
 	for {
 		select {
 		case isAcked := <-channel: // Wait for status,
 			if isAcked{
+				tick.Stop()
 				return
 			}
 		case <-tick.C:
@@ -211,8 +214,8 @@ func (gp *Gossiper) MongerMessage(node *net.UDPAddr, message *RumorMessage, exce
 			if timeout {
 				go gp.StartRumormongering(message, except, false, true) // If we time out, then start again*/
 			}
-
-			gp.Nodes.DeleteChannel(node, message) // Delete the channel after timeout
+			tick.Stop()
+			go gp.Nodes.DeleteChannel(node, message) // Delete the channel after timeout
 			return
 		}
 	}

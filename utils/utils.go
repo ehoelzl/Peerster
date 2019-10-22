@@ -12,6 +12,12 @@ func CheckError(err error, msg string) {
 	}
 }
 
+func CheckFatalError(error error, msg string) {
+	if error != nil {
+		panic(msg)
+	}
+}
+
 
 func CoinFlip() bool {
 	return rand.Int() % 2 == 0
