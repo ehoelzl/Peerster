@@ -93,7 +93,7 @@ func (peers *GossipPeers) AddRumorMessage(rumor *RumorMessage) bool {
 	return peers.Peers[identifier].NextID
 }*/
 
-func (peers *GossipPeers) ParseStatus(statusPacket *StatusPacket) (*RumorMessage, bool) {
+func (peers *GossipPeers) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool) {
 	peers.Lock.RLock()
 	defer peers.Lock.RUnlock()
 	statusMap := statusPacket.ToMap()
@@ -103,34 +103,25 @@ func (peers *GossipPeers) ParseStatus(statusPacket *StatusPacket) (*RumorMessage
 		if nextId, ok := statusMap[identifier]; ok {
 			if nextId < peer.NextID { // Peer is missing messages from peer.Identifier
 				message = peers.Peers[identifier].Messages[nextId] // Get the missing message
-				break
+				return message, false
 			}
 		} else if peer.NextID > 1 { // Peer not present and has messages
 			message = peers.Peers[identifier].Messages[1] // Get the first message
-			break
+			return message, false
 		}
 	}
-	isMissing := false
 	for _, status := range statusPacket.Want {
-		if _, ok := peers.Peers[status.Identifier]; !ok { // If peer not present, create new peer
-			isMissing = status.NextID > 1
+		if _, ok := peers.Peers[status.Identifier]; !ok { // Peer not present
+			if status.NextID > 1 {
+				return nil, true
+			}
 		} else {
 			elem := peers.Peers[status.Identifier]
 			if elem.NextID < status.NextID {
-				isMissing = true
-				break
+				return nil, true
 			}
 		}
 
 	}
-	return message, isMissing
+	return nil, false
 }
-
-/*func (peers *GossipPeers) IsMissingMessage(status *StatusPacket) bool {
-	peers.Lock.RLock()
-	defer peers.Lock.RUnlock()
-
-
-	return false
-}
-*/

@@ -2,7 +2,6 @@ package types
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
 	"net"
 	"strings"
@@ -10,7 +9,8 @@ import (
 )
 
 type Node struct {
-	Channels map[*RumorMessage]chan *StatusPacket
+	Channels map[*RumorMessage]chan bool
+	LastSent *RumorMessage
 	udpAddr  *net.UDPAddr
 }
 type Nodes struct {
@@ -25,7 +25,8 @@ func NewNodes(addresses string) *Nodes {
 			peerAddr, err := net.ResolveUDPAddr("udp4", address)
 			if err == nil {
 				nodes[peerAddr.String()] = &Node{
-					Channels: make(map[*RumorMessage]chan *StatusPacket),
+					Channels: make(map[*RumorMessage]chan bool),
+					LastSent: nil,
 					udpAddr:  peerAddr,
 				}
 			}
@@ -48,7 +49,8 @@ func (nodes *Nodes) AddNode(address *net.UDPAddr) {
 		}
 	}
 	nodes.Addresses[address.String()] = &Node{
-		Channels: make(map[*RumorMessage]chan *StatusPacket),
+		Channels: make(map[*RumorMessage]chan bool),
+		LastSent: nil,
 		udpAddr:  address,
 	}
 }
@@ -84,7 +86,7 @@ func (nodes *Nodes) Print() {
 	fmt.Printf("PEERS %v\n", strings.Join(stringAddresses, ","))
 }
 
-func (nodes *Nodes) RegisterChannel(address *net.UDPAddr, rumor *RumorMessage, channel chan *StatusPacket) {
+func (nodes *Nodes) RegisterChannel(address *net.UDPAddr, rumor *RumorMessage, channel chan bool) {
 	// Registers the given channel for the given message
 	nodes.Lock.Lock()
 	defer nodes.Lock.Unlock()
@@ -93,6 +95,7 @@ func (nodes *Nodes) RegisterChannel(address *net.UDPAddr, rumor *RumorMessage, c
 			close(ch)
 		}
 		nodes.Addresses[address.String()].Channels[rumor] = channel
+		nodes.Addresses[address.String()].LastSent = rumor
 	}
 }
 
@@ -104,31 +107,37 @@ func (nodes *Nodes) DeleteChannel(address *net.UDPAddr, rumor *RumorMessage) {
 			close(ch)
 			delete(nodes.Addresses[address.String()].Channels, rumor)
 		}
-		log.Println(nodes.Addresses[address.String()])
 	}
 }
 
-func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr, status *StatusPacket) bool {
+func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr, status *StatusPacket) *RumorMessage {
+	// Checks for timers on sent messages, stops them and returns the last acked Rumor, or nil if no rumors were waiting for ack
 	nodes.Lock.Lock()
 	defer nodes.Lock.Unlock()
 
 	statusMap := status.ToMap()
-	var toDelete []*RumorMessage
-	if node, ok := nodes.Addresses[address.String()]; ok {
+	var acked []*RumorMessage
+	var lastMessage *RumorMessage
 
-		for rumor, ch := range node.Channels { // iterate over all channels for this node
+	if node, ok := nodes.Addresses[address.String()]; ok { // Check if channels are open for tis node
+		for rumor, ack := range node.Channels { // iterate over all channels for this node
 			if elem, ok := statusMap[rumor.Origin]; ok { // Means the rumor's origin is in statusMap
 				if elem > rumor.ID { // Means this rumor is acked
-					ch <- status
-					toDelete = append(toDelete, rumor)
+					ack <- true
+					acked = append(acked, rumor)
 				}
 			}
 		}
 
-		for _, r := range toDelete {
+		for _, r := range acked {
 			close(node.Channels[r])
 			delete(node.Channels, r)
 		}
+
+		if len(acked) > 0 {
+			lastMessage = node.LastSent
+		}
+
 	}
-	return len(toDelete) > 0
+	return lastMessage
 }
