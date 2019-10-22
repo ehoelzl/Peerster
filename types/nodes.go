@@ -12,6 +12,7 @@ type Node struct {
 	Channels map[*RumorMessage]chan bool
 	LastSent *RumorMessage
 	udpAddr  *net.UDPAddr
+	Lock     sync.Mutex
 }
 type Nodes struct {
 	Addresses map[string]*Node
@@ -40,19 +41,22 @@ func NewNodes(addresses string) *Nodes {
 
 func (nodes *Nodes) AddNode(address *net.UDPAddr) {
 	// Checks if the given `*net.UDPAddr` is in `gp.Nodes`, if not, it adds it.
-	nodes.Lock.Lock()
-	defer nodes.Lock.Unlock()
-
+	nodes.Lock.RLock()
 	for nodeAddr, _ := range nodes.Addresses {
 		if nodeAddr == address.String() {
+			nodes.Lock.RUnlock()
 			return
 		}
 	}
+	nodes.Lock.RUnlock()
+	nodes.Lock.Lock()
+
 	nodes.Addresses[address.String()] = &Node{
 		Channels: make(map[*RumorMessage]chan bool),
 		LastSent: nil,
 		udpAddr:  address,
 	}
+	nodes.Lock.Unlock()
 }
 
 func (nodes *Nodes) RandomNode(except map[string]struct{}) *net.UDPAddr {
@@ -88,9 +92,11 @@ func (nodes *Nodes) Print() {
 
 func (nodes *Nodes) RegisterChannel(address *net.UDPAddr, rumor *RumorMessage, channel chan bool) {
 	// Registers the given channel for the given message
-	nodes.Lock.Lock()
-	defer nodes.Lock.Unlock()
+	nodes.Lock.RLock()
+	defer nodes.Lock.RUnlock()
 	if node, ok := nodes.Addresses[address.String()]; ok {
+		node.Lock.Lock()
+		defer node.Lock.Unlock()
 		if ch, ok := node.Channels[rumor]; ok { // If we already have a channel for this rumor, node, close it
 			close(ch)
 		}
@@ -100,9 +106,11 @@ func (nodes *Nodes) RegisterChannel(address *net.UDPAddr, rumor *RumorMessage, c
 }
 
 func (nodes *Nodes) DeleteChannel(address *net.UDPAddr, rumor *RumorMessage) {
-	nodes.Lock.Lock()
-	defer nodes.Lock.Unlock()
+	nodes.Lock.RLock()
+	defer nodes.Lock.RUnlock()
 	if node, ok := nodes.Addresses[address.String()]; ok {
+		node.Lock.Lock()
+		defer node.Lock.Unlock()
 		if ch, ok := node.Channels[rumor]; ok {
 			close(ch)
 			delete(nodes.Addresses[address.String()].Channels, rumor)
@@ -112,14 +120,16 @@ func (nodes *Nodes) DeleteChannel(address *net.UDPAddr, rumor *RumorMessage) {
 
 func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr, status *StatusPacket) *RumorMessage {
 	// Checks for timers on sent messages, stops them and returns the last acked Rumor, or nil if no rumors were waiting for ack
-	nodes.Lock.Lock()
-	defer nodes.Lock.Unlock()
+	nodes.Lock.RLock()
+	defer nodes.Lock.RUnlock()
 
 	statusMap := status.ToMap()
 	var acked []*RumorMessage
 	var lastMessage *RumorMessage
 
 	if node, ok := nodes.Addresses[address.String()]; ok { // Check if channels are open for tis node
+		node.Lock.Lock()
+		defer node.Lock.Unlock()
 		for rumor, ack := range node.Channels { // iterate over all channels for this node
 			if elem, ok := statusMap[rumor.Origin]; ok { // Means the rumor's origin is in statusMap
 				if elem > rumor.ID { // Means this rumor is acked

@@ -128,14 +128,14 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 		if isAck {
 			if flip := utils.CoinFlip(); flip {
 				except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
-				gp.StartRumormongering(lastRumor, except, true, false)  // Start mongering, but no timeout
+				go gp.StartRumormongering(lastRumor, except, true, false)  // Start mongering, but no timeout
 			}
 		}
 	} else {
 		if missingMessage != nil {
-			gp.MongerMessage(from, missingMessage, nil, false) // Monger missing message to node, without timeout
+			go gp.MongerMessage(from, missingMessage, nil, false) // Monger missing message to node, without timeout
 		} else if isMissing {
-			gp.SendStatusMessage(from) // I have missing messages
+			go gp.SendStatusMessage(from) // I have missing messages
 		}
 	}
 }
@@ -157,7 +157,7 @@ func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, statu
 func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 	// Creates the vector clock for the given peer
 	statusPacket := &StatusPacket{Want: gp.Peers.Status}
-	gp.SendPacket(nil, nil, statusPacket, to)
+	go gp.SendPacket(nil, nil, statusPacket, to)
 }
 
 func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) {
@@ -167,7 +167,7 @@ func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) 
 
 	for nodeAddr, node := range gp.Nodes.Addresses {
 		if nodeAddr != except.String() {
-			gp.SendPacket(packet, nil, nil, node.udpAddr)
+			go gp.SendPacket(packet, nil, nil, node.udpAddr)
 		}
 	}
 }
@@ -188,13 +188,13 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 		}
 		except[randomNode.String()] = struct{}{} // Add node we send to, to the except list
 
-		gp.MongerMessage(randomNode, message, except, timeout)
+		go gp.MongerMessage(randomNode, message, except, timeout)
 	}
 }
 
 func (gp *Gossiper) MongerMessage(node *net.UDPAddr, message *RumorMessage, except map[string]struct{}, timeout bool) {
 	// Send the message to the nodes, starts a timeout timer and registers the channel
-	gp.SendPacket(nil, message, nil, node) // Send rumor
+	go gp.SendPacket(nil, message, nil, node) // Send rumor
 	tick := time.NewTicker(10 * time.Second)  // Start ticker
 	channel := make(chan bool)
 
