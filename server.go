@@ -22,7 +22,7 @@ func (s *Server) GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	messageMap := make(map[string]map[uint32]string)
-	for identifier, p := range s.Gossiper.Peers.Peers {
+	for identifier, p := range s.Gossiper.Rumors.Origins {
 		numMessages := len(p.Messages)
 		if numMessages > 0 {
 			messages := make(map[uint32]string)
