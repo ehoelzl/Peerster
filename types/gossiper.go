@@ -18,6 +18,7 @@ type Gossiper struct {
 	Name          string
 	Nodes         *Nodes
 	Peers         *GossipPeers // From name to peer
+	Routing       *RoutingTable
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint) (*Gossiper, bool) {
@@ -49,6 +50,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		IsSimple:      simple,
 		Nodes:         NewNodes(initialPeers),
 		Peers:         peers,
+		Routing:       NewRoutingTable(),
 	}
 
 	// AntiEntropy timer
@@ -138,6 +140,7 @@ func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 	go gp.SendStatusMessage(from)                   // Send back ack
 
 	if messageAdded { // If message was not seen before, continue rumor mongering to other nodes
+		gp.Routing.UpdateRoute(rumor.Origin, from.String()) // Update routing table
 		except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
 		gp.StartRumormongering(rumor, except, false, true)
 	}
@@ -154,8 +157,8 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 		fmt.Printf("IN SYNC WITH %v\n", from.String())
 		if isAck {
 			if flip := utils.CoinFlip(); flip {
-				except := map[string]struct{}{from.String(): struct{}{}}  // Monger with other nodes except this one
-				gp.StartRumormongering(lastRumor, except, true, false) // Start mongering, but no timeout
+				except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
+				gp.StartRumormongering(lastRumor, except, true, false)   // Start mongering, but no timeout
 			}
 		}
 	} else {
@@ -219,7 +222,7 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 	except[randomNode.String()] = struct{}{} // Add node we send to, to the except list
 
 	gp.SendPacket(nil, message, nil, randomNode) // Send rumor
-	if withTimeout{
+	if withTimeout {
 		callback := func() {
 			fmt.Printf("Timeout on message %v sent to %v\n", message, randomNode)
 			go gp.StartRumormongering(message, except, false, true) // Monger with other node
@@ -229,3 +232,6 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 	}
 
 }
+
+
+/*----------------------- Methods for Routing -----------------------*/
