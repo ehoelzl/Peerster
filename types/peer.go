@@ -17,15 +17,22 @@ func newPeer() *Peer {
 	}
 }
 
-func (p *Peer) addMessage(rumor *RumorMessage) bool {
+func (p *Peer) addRumor(rumor *RumorMessage) bool {
 	// Adds the given message to the peer, checks if rumor.ID == p.NextId
-	if rumor.ID != p.NextID {
-		return false
-	} else {
-		p.Messages[rumor.ID] = rumor
-		p.NextID += 1
-		return true
+	isNewRumor := false
+	if rumor.ID >= p.NextID { // New message
+		isNewRumor = true
+		p.Messages[rumor.ID] = rumor // Add new message to list
+		if rumor.ID == p.NextID { // Update
+			p.NextID += 1
+		}
+		// Now see if we should increment next ID (received later messages)
+		for _, ok := p.Messages[p.NextID]; ok; { // Means the Next ID should be incremented
+			p.NextID +=1
+			_, ok = p.Messages[p.NextID]
+		}
 	}
+	return isNewRumor
 }
 
 /*======================= Definition of A Collection of peers =======================*/
@@ -61,15 +68,16 @@ func (peers *GossipPeers) CreateNewMessage(origin string, message string) *Rumor
 func (peers *GossipPeers) AddRumorMessage(rumor *RumorMessage) bool {
 	peers.Lock()
 	defer peers.Unlock()
-	messageAdded := false
+	isNewRumor := false
 
 	if elem, ok := peers.Peers[rumor.Origin]; ok { // Check if we already have the Origin
-		messageAdded = elem.addMessage(rumor) // If yes, add message
+		isNewRumor = elem.addRumor(rumor) // If yes, add message
 	} else {
 		peers.Peers[rumor.Origin] = newPeer()
-		messageAdded = peers.Peers[rumor.Origin].addMessage(rumor)
+		isNewRumor = peers.Peers[rumor.Origin].addRumor(rumor)
+
 	}
-	return messageAdded
+	return isNewRumor
 }
 
 func (peers *GossipPeers) GetStatusPacket() *StatusPacket {
@@ -105,8 +113,10 @@ func (peers *GossipPeers) CompareStatus(statusPacket *StatusPacket) (*RumorMessa
 	// Then check if I have missing messages
 	for _, status := range statusPacket.Want {
 		elem, ok := peers.Peers[status.Identifier]
-		if !ok {
-			return nil, false, status.NextID > 1 // If peer not present locally, check if they have at least one message
+		if !ok { // If peer not present locally, check if they have at least one message
+			if status.NextID > 1{
+				return nil, false, true
+			}
 		} else {
 			return nil, false, status.NextID > elem.NextID // If peer present, check if their NextId is bigger then mine
 		}

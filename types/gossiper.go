@@ -162,10 +162,10 @@ func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 
 	fmt.Printf("RUMOR origin %v from %v ID %v contents %v\n", rumor.Origin, from.String(), rumor.ID, rumor.Text)
 	gp.Nodes.Print()
-	messageAdded := gp.Peers.AddRumorMessage(rumor) // Add message to list // TODO change this to add all messages
-	go gp.SendStatusMessage(from)                   // Send back ack
+	isNewRumor := gp.Peers.AddRumorMessage(rumor) // Add message to list // TODO change this to add all messages
+	go gp.SendStatusMessage(from)                 // Send back ack
 
-	if messageAdded { // If message was not seen before, continue rumor mongering to other nodes
+	if isNewRumor { // If message was not seen before, continue rumor mongering to other nodes
 		gp.Routing.UpdateRoute(rumor.Origin, from, len(rumor.Text) == 0) // Update routing table
 
 		except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
