@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/dedis/protobuf"
 	. "github.com/ehoelzl/Peerster/types"
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
@@ -73,9 +74,16 @@ func (s *Server) PostMessageHandler(w http.ResponseWriter, r *http.Request) {
 	err := decoder.Decode(&mess)
 
 	if err != nil {
-		panic(err)
+		log.Println("Could not decode message from UI")
+		return
 	}
-	go s.Gossiper.HandleClientMessage(&mess)
+	packetBytes, err := protobuf.Encode(&mess)
+	if err != nil {
+		log.Println("Could not encode message from UI")
+		return
+	}
+
+	go s.Gossiper.HandleClientMessage(packetBytes)
 }
 
 func (s *Server) PostNodeHandler(w http.ResponseWriter, r *http.Request) {
@@ -92,9 +100,10 @@ func (s *Server) PostNodeHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			log.Printf("Could not resolve address %v, added by user\n", newNode.Text)
+			return
 		} else {
 			w.WriteHeader(http.StatusOK)
-			go s.Gossiper.Nodes.AddNode(nodeAddress)
+			go s.Gossiper.Nodes.Add(nodeAddress)
 			log.Printf("Added new node at %v\n", nodeAddress)
 		}
 	}

@@ -2,86 +2,83 @@ package types
 
 import (
 	"fmt"
+	"github.com/ehoelzl/Peerster/utils"
+	"log"
 	"math/rand"
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Node struct {
-	Channels map[*RumorMessage]chan bool
+	Ticker   *time.Ticker
 	LastSent *RumorMessage
 	udpAddr  *net.UDPAddr
-	Lock     sync.Mutex
 }
 type Nodes struct {
 	Addresses map[string]*Node
-	Lock      sync.RWMutex
+	sync.RWMutex
 }
 
 func NewNodes(addresses string) *Nodes {
+	// Parses the string addresses passed in CLI and stores them in a Map ofr Node
 	nodes := make(map[string]*Node)
 	if len(addresses) > 0 {
 		for _, address := range strings.Split(addresses, ",") {
 			peerAddr, err := net.ResolveUDPAddr("udp4", address)
-			if err == nil {
-				nodes[peerAddr.String()] = &Node{
-					Channels: make(map[*RumorMessage]chan bool),
-					LastSent: nil,
-					udpAddr:  peerAddr,
-				}
+			if err != nil {
+				log.Printf("Could not resolve peer address %v\n", address)
+				continue
+			}
+			nodes[peerAddr.String()] = &Node{
+				Ticker:   nil,
+				LastSent: nil,
+				udpAddr:  peerAddr,
 			}
 		}
 	}
 	return &Nodes{
 		Addresses: nodes,
-		Lock:      sync.RWMutex{},
 	}
 }
 
-func (nodes *Nodes) AddNode(address *net.UDPAddr) {
+func (nodes *Nodes) Add(address *net.UDPAddr) {
 	// Checks if the given `*net.UDPAddr` is in `gp.Nodes`, if not, it adds it.
-	nodes.Lock.RLock()
-	for nodeAddr, _ := range nodes.Addresses {
-		if nodeAddr == address.String() {
-			nodes.Lock.RUnlock()
-			return
+	nodes.Lock()
+	defer nodes.Unlock()
+	if _, ok := nodes.Addresses[address.String()]; !ok {
+		nodes.Addresses[address.String()] = &Node{
+			Ticker:   nil,
+			LastSent: nil,
+			udpAddr:  address,
 		}
 	}
-	nodes.Lock.RUnlock()
-	nodes.Lock.Lock()
-
-	nodes.Addresses[address.String()] = &Node{
-		Channels: make(map[*RumorMessage]chan bool),
-		LastSent: nil,
-		udpAddr:  address,
-	}
-	nodes.Lock.Unlock()
 }
 
-func (nodes *Nodes) RandomNode(except map[string]struct{}) *net.UDPAddr {
+func (nodes *Nodes) GetRandom(except map[string]struct{}) (*net.UDPAddr, bool) {
 	// Returns a random address from the list of Addresses
 	var toKeep []*net.UDPAddr
-	nodes.Lock.RLock()
+	nodes.RLock()
 	for nodeAddr, node := range nodes.Addresses {
 		_, noSkip := except[nodeAddr] // If address in `except`
 		if except == nil || !noSkip {
 			toKeep = append(toKeep, node.udpAddr) // If the address of the peer is different than `except` we add it to the list
 		}
 	}
-	nodes.Lock.RUnlock()
+	nodes.RUnlock()
 
 	if len(toKeep) == 0 {
-		return nil
+		return nil, false
 	}
 	randInt := rand.Intn(len(toKeep)) // Choose random number
-	return toKeep[randInt]
+	return toKeep[randInt], true
 }
 
 func (nodes *Nodes) Print() {
 	var stringAddresses []string
-	nodes.Lock.RLock()
-	defer nodes.Lock.RUnlock()
+	nodes.RLock()
+	defer nodes.RUnlock()
 
 	for peerAddr, _ := range nodes.Addresses {
 		stringAddresses = append(stringAddresses, peerAddr)
@@ -90,64 +87,47 @@ func (nodes *Nodes) Print() {
 	fmt.Printf("PEERS %v\n", strings.Join(stringAddresses, ","))
 }
 
-func (nodes *Nodes) RegisterChannel(address *net.UDPAddr, rumor *RumorMessage, channel chan bool) {
+func (nodes *Nodes) StartTicker(address *net.UDPAddr, message *RumorMessage, callback func()) {
 	// Registers the given channel for the given message
-	nodes.Lock.RLock()
-	defer nodes.Lock.RUnlock()
+	nodes.Lock()
+	defer nodes.Unlock()
 	if node, ok := nodes.Addresses[address.String()]; ok {
-		node.Lock.Lock()
-		defer node.Lock.Unlock()
-		if ch, ok := node.Channels[rumor]; ok { // If we already have a channel for this rumor, node, close it
-			close(ch)
+		if node.Ticker != nil {
+			node.Ticker.Stop() // Stop the running ticker
 		}
-		nodes.Addresses[address.String()].Channels[rumor] = channel
-		nodes.Addresses[address.String()].LastSent = rumor
+		node.Ticker = utils.NewTimoutTicker(callback, 10)
+		node.LastSent = message
 	}
 }
 
-func (nodes *Nodes) DeleteChannel(address *net.UDPAddr, rumor *RumorMessage) {
-	nodes.Lock.RLock()
-	defer nodes.Lock.RUnlock()
+func (nodes *Nodes) DeleteTicker(address *net.UDPAddr) {
+	nodes.Lock()
+	defer nodes.Unlock()
 	if node, ok := nodes.Addresses[address.String()]; ok {
-		node.Lock.Lock()
-		defer node.Lock.Unlock()
-		if ch, ok := node.Channels[rumor]; ok {
-			close(ch)
-			delete(nodes.Addresses[address.String()].Channels, rumor)
-		}
+		node.Ticker.Stop()
+		node.Ticker = nil
+		node.LastSent = nil
 	}
 }
 
-func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr, status *StatusPacket) *RumorMessage {
-	// Checks for timers on sent messages, stops them and returns the last acked Rumor, or nil if no rumors were waiting for ack
-	nodes.Lock.RLock()
-	defer nodes.Lock.RUnlock()
-
-	statusMap := status.ToMap()
-	var acked []*RumorMessage
+func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr) (*RumorMessage, bool) {
+	nodes.Lock()
+	defer nodes.Unlock()
 	var lastMessage *RumorMessage
-
-	if node, ok := nodes.Addresses[address.String()]; ok { // Check if channels are open for tis node
-		node.Lock.Lock()
-		defer node.Lock.Unlock()
-		for rumor, ack := range node.Channels { // iterate over all channels for this node
-			if elem, ok := statusMap[rumor.Origin]; ok { // Means the rumor's origin is in statusMap
-				if elem > rumor.ID { // Means this rumor is acked
-					ack <- true
-					acked = append(acked, rumor)
-				}
-			}
+	if node, ok := nodes.Addresses[address.String()]; ok {
+		if node.Ticker == nil {
+			return nil, false
 		}
-
-		for _, r := range acked {
-			close(node.Channels[r])
-			delete(node.Channels, r)
+		node.Ticker.Stop()
+		node.Ticker = nil
+		lastMessage = node.LastSent
+		node.LastSent = nil
+		if lastMessage == nil { // Should never go in there
+			log.Println("Got non nil ticker with nil message")
+			return nil, false
 		}
-
-		if len(acked) > 0 {
-			lastMessage = node.LastSent
-		}
+		return lastMessage, true
 
 	}
-	return lastMessage
+	return nil, false
 }

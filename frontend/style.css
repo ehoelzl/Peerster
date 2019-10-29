@@ -75,6 +75,7 @@ hr {
 .message {
   border-bottom: 1px dotted;
   margin-bottom: 7px;
+  overflow: hidden;
 }
 .messages{
   font-size: 15px;

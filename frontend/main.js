@@ -131,8 +131,9 @@ class MessagesBox extends Component {
       for (let _id = 1; _id <= numMessages; _id++){
         var message = this.state.messages[node][_id]
         items.push(html`<div class="message">
-                        <div style="width: 200px; float: left; font-family: monospace">${node}</div>
-                        <div>${message}</div>
+                            <div style="width: 50%; float: right">${message}</div>
+                            <div style="width: 50%;font-family: monospace; float: left; height: 100%">${node}</div>
+
                         </div>`)
       }
       items.push(html`<hr style="border-top: 1px dotted"/>`)
@@ -145,7 +146,7 @@ class MessagesBox extends Component {
         <section>
             <div style="font-weight: bold; margin-bottom: 20px">Messages</div>
             <div style="margin-bottom: 15px; border-bottom: 2px dotted">
-                <div style="width: 200px;float: left; font-family: monospace">From</div>
+                <div style="width: 220px;float: left; font-family: monospace">From</div>
                 <div>Message</div>
             </div>
             <div class="messages">

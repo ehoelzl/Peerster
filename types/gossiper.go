@@ -20,22 +20,26 @@ type Gossiper struct {
 	Peers         *GossipPeers // From name to peer
 }
 
-func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint) *Gossiper {
+func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint) (*Gossiper, bool) {
 	// Creates new gossiper with the given parameters
+	if len(name) == 0 {
+		fmt.Println("Please provide a name for the gossiper")
+		return nil, false
+	}
 	clientAddr, err := net.ResolveUDPAddr("udp4", uiAddress)
+	utils.CheckFatalError(err, fmt.Sprintf("Could not resolve UI Address %v\n", uiAddress))
+
 	clientConn, err := net.ListenUDP("udp4", clientAddr) // Connection to client
 	utils.CheckFatalError(err, fmt.Sprintf("Error when opening client UDP channel for %v\n", name))
 
-
 	gossipAddr, err := net.ResolveUDPAddr("udp4", gossipAddress)
+	utils.CheckFatalError(err, fmt.Sprintf("Could not resolve Gossip Address Address %v\n", gossipAddress))
 	gossipConn, err := net.ListenUDP("udp4", gossipAddr)
 	utils.CheckFatalError(err, fmt.Sprintf("Error when opening gossip UDP channel for %v\n", name))
-	err = gossipConn.SetReadBuffer(1000)
-	utils.CheckFatalError(err, fmt.Sprintf("Could not set read buffer for %v\n", name))
+
 	log.Printf("Starting gossiper %v\n UIAddress: %v\n GossipAddress %v\n Peers %v\n\n", name, clientAddr, gossipAddr, initialPeers)
 
-	peers := NewPeers()
-	peers.AddPeer(name)
+	peers := NewPeers(name) // Create Peer structure for messages
 	gossiper := &Gossiper{
 		ClientAddress: clientAddr,
 		ClientConn:    clientConn,
@@ -47,17 +51,29 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		Peers:         peers,
 	}
 
-/*	go utils.NewTicker(func() {
-		randomNode := gossiper.Nodes.RandomNode(nil)
-		if randomNode != nil {
+	// AntiEntropy timer
+	go utils.NewTicker(func() {
+		randomNode, ok := gossiper.Nodes.GetRandom(nil)
+		if ok {
 			gossiper.SendStatusMessage(randomNode)
 		}
-	}, time.Duration(antiEntropy))*/
+	}, time.Duration(antiEntropy))
 
-	return gossiper
+	return gossiper, true
 }
 
-func (gp *Gossiper) HandleClientMessage(message *Message) {
+func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
+	message := &Message{}
+	err := protobuf.Decode(packetBytes, message)
+	if err != nil {
+		log.Println("Could not decode packet from client")
+		return
+	}
+	if len(message.Text) == 0 {
+		log.Println("Empty message")
+		return
+	}
+
 	fmt.Printf("CLIENT MESSAGE %v\n", message.Text)
 
 	if gp.IsSimple { // Simple case
@@ -80,8 +96,16 @@ func (gp *Gossiper) HandleClientMessage(message *Message) {
 	}
 }
 
-func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packet *GossipPacket) {
-	gp.Nodes.AddNode(from) // Add node to list if not in
+func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
+	packet := &GossipPacket{}
+	err := protobuf.Decode(packetBytes, packet)
+	if err != nil {
+		log.Println(err)
+		log.Printf("Could not decode GossipPacket from %v\n", from.String())
+		return
+	}
+
+	gp.Nodes.Add(from) // Add node to list if not in
 	if gp.IsSimple {
 		if packet.Simple == nil {
 			log.Printf("Empty simple message from %v\n", from.String())
@@ -101,6 +125,7 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packet *GossipPacket) 
 
 		} else {
 			log.Printf("Empty packet from %v\n", from.String())
+			return
 		}
 	}
 }
@@ -110,7 +135,7 @@ func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 	fmt.Printf("RUMOR origin %v from %v ID %v contents %v\n", rumor.Origin, from.String(), rumor.ID, rumor.Text)
 	gp.Nodes.Print()
 	messageAdded := gp.Peers.AddRumorMessage(rumor) // Add message to list
-	gp.SendStatusMessage(from)                   // Send back ack
+	go gp.SendStatusMessage(from)                   // Send back ack
 
 	if messageAdded { // If message was not seen before, continue rumor mongering to other nodes
 		except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
@@ -121,24 +146,23 @@ func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) {
 	status.PrintStatusMessage(from)
 	gp.Nodes.Print()
-	lastRumor := gp.Nodes.CheckTimeouts(from, status)
-	isAck := lastRumor != nil
-	missingMessage, isMissing := gp.Peers.CompareStatus(status)
-	inSync := missingMessage == nil && !isMissing
+	lastRumor, isAck := gp.Nodes.CheckTimeouts(from)
+	missingMessage, isMissing, amMissing := gp.Peers.CompareStatus(status)
+	inSync := !(isMissing || amMissing)
 
 	if inSync {
 		fmt.Printf("IN SYNC WITH %v\n", from.String())
 		if isAck {
 			if flip := utils.CoinFlip(); flip {
-				except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
-				go gp.StartRumormongering(lastRumor, except, true, false)  // Start mongering, but no timeout
+				except := map[string]struct{}{from.String(): struct{}{}}  // Monger with other nodes except this one
+				gp.StartRumormongering(lastRumor, except, true, false) // Start mongering, but no timeout
 			}
 		}
 	} else {
-		if missingMessage != nil {
-			go gp.MongerMessage(from, missingMessage, nil, false) // Monger missing message to node, without timeout
-		} else if isMissing {
-			go gp.SendStatusMessage(from) // I have missing messages
+		if isMissing { // Means they are missing a message
+			gp.SendPacket(nil, missingMessage, nil, from) // Send back missing message
+		} else if amMissing { // Means I am missing a message
+			gp.SendStatusMessage(from) // I have missing messages
 		}
 	}
 }
@@ -147,76 +171,61 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 
 func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, to *net.UDPAddr) {
 	gossipPacket, err := protobuf.Encode(&GossipPacket{Simple: simple, Rumor: rumor, Status: status})
-	if err == nil {
-		_, err = gp.GossipConn.WriteToUDP(gossipPacket, to)
-		if err != nil {
-			log.Printf("Error sending gossipPacket from node %v to node %v\n", gp.GossipAddress.String(), to.String())
-		}
-	} else {
+	if err != nil {
 		log.Printf("Error encoding gossipPacket for %v\n", to.String())
+		return
 	}
+	_, err = gp.GossipConn.WriteToUDP(gossipPacket, to)
+
+	if err != nil {
+		log.Printf("Error sending gossipPacket to node %v\n", to.String())
+	}
+
 }
 
 func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 	// Creates the vector clock for the given peer
-	statusPacket := &StatusPacket{Want: gp.Peers.Status}
-	go gp.SendPacket(nil, nil, statusPacket, to)
+	statusPacket := gp.Peers.GetStatusPacket()
+	gp.SendPacket(nil, nil, statusPacket, to)
 }
 
 func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) {
 	// Double functionality: Broadcasts to all peers if except == nil, or to all except the given one
-	gp.Nodes.Lock.RLock()
-	defer gp.Nodes.Lock.RUnlock()
+	gp.Nodes.RLock()
+	defer gp.Nodes.RUnlock()
 
 	for nodeAddr, node := range gp.Nodes.Addresses {
 		if nodeAddr != except.String() {
-			go gp.SendPacket(packet, nil, nil, node.udpAddr)
+			gp.SendPacket(packet, nil, nil, node.udpAddr)
 		}
 	}
 }
 
-func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string]struct{}, coinFlip bool, timeout bool) {
+func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string]struct{}, coinFlip bool, withTimeout bool) {
 	// Picks random receiver and Mongers the message
-	randomNode := gp.Nodes.RandomNode(except)
-
-	if randomNode != nil {
-		if coinFlip {
-			fmt.Printf("FLIPPED COIN sending rumor to %v\n", randomNode.String())
-		} else {
-			fmt.Printf("MONGERING with %v\n", randomNode.String())
-		}
-
-		if except == nil {
-			except = make(map[string]struct{})
-		}
-		except[randomNode.String()] = struct{}{} // Add node we send to, to the except list
-
-		go gp.MongerMessage(randomNode, message, except, timeout)
+	randomNode, ok := gp.Nodes.GetRandom(except)
+	if !ok {
+		return
 	}
-}
-
-func (gp *Gossiper) MongerMessage(node *net.UDPAddr, message *RumorMessage, except map[string]struct{}, timeout bool) {
-	// Send the message to the nodes, starts a timeout timer and registers the channel
-	go gp.SendPacket(nil, message, nil, node) // Send rumor
-	tick := time.NewTicker(10 * time.Second)  // Start ticker
-	channel := make(chan bool)
-
-	gp.Nodes.RegisterChannel(node, message, channel)
-	for {
-		select {
-		case isAcked := <-channel: // Wait for status,
-			if isAcked{
-				tick.Stop()
-				return
-			}
-		case <-tick.C:
-			fmt.Printf("Timeout for message %v sent to %v\n", message, node)
-			if timeout {
-				go gp.StartRumormongering(message, except, false, true) // If we time out, then start again*/
-			}
-			tick.Stop()
-			go gp.Nodes.DeleteChannel(node, message) // Delete the channel after timeout
-			return
-		}
+	if coinFlip {
+		fmt.Printf("FLIPPED COIN sending rumor to %v\n", randomNode.String())
+	} else {
+		fmt.Printf("MONGERING with %v\n", randomNode.String())
 	}
+
+	if except == nil {
+		except = make(map[string]struct{})
+	}
+	except[randomNode.String()] = struct{}{} // Add node we send to, to the except list
+
+	gp.SendPacket(nil, message, nil, randomNode) // Send rumor
+	if withTimeout{
+		callback := func() {
+			fmt.Printf("Timeout on message %v sent to %v\n", message, randomNode)
+			go gp.StartRumormongering(message, except, false, true) // Monger with other node
+			gp.Nodes.DeleteTicker(randomNode)
+		}
+		gp.Nodes.StartTicker(randomNode, message, callback)
+	}
+
 }

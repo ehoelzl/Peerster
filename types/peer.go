@@ -6,20 +6,19 @@ import (
 
 /*======================= Definition of One Peer =======================*/
 type Peer struct {
-	ID       int
 	NextID   uint32
 	Messages map[uint32]*RumorMessage
 }
 
-func newPeer(id int) *Peer {
+func newPeer() *Peer {
 	return &Peer{
-		ID:       id,
 		NextID:   1,
 		Messages: make(map[uint32]*RumorMessage),
 	}
 }
 
 func (p *Peer) addMessage(rumor *RumorMessage) bool {
+	// Adds the given message to the peer, checks if rumor.ID == p.NextId
 	if rumor.ID != p.NextID {
 		return false
 	} else {
@@ -32,96 +31,73 @@ func (p *Peer) addMessage(rumor *RumorMessage) bool {
 /*======================= Definition of A Collection of peers =======================*/
 
 type GossipPeers struct {
-	Status []PeerStatus
-	Peers  map[string]*Peer
-	Lock   sync.RWMutex
+	Peers map[string]*Peer
+	sync.RWMutex
 }
 
-func NewPeers() *GossipPeers {
+func NewPeers(identifier string) *GossipPeers {
+	//Creates the GossipPeers structure, and adds the identifier of the current gossiper
+	initialPeer := newPeer()
+	peers := make(map[string]*Peer)
+	peers[identifier] = initialPeer
+
 	return &GossipPeers{
-		Status: nil,
-		Peers:  make(map[string]*Peer),
-		Lock:   sync.RWMutex{},
+		Peers: peers,
 	}
-}
-
-func (peers *GossipPeers) AddPeer(identifier string) {
-	// Assumes this peer does not exist and Lock was
-	peers.Lock.Lock()
-	defer peers.Lock.Unlock()
-	peers.Peers[identifier] = newPeer(len(peers.Status))
-	peers.Status = append(peers.Status, PeerStatus{
-		Identifier: identifier,
-		NextID:     1,
-	})
 }
 
 func (peers *GossipPeers) AddRumorMessage(rumor *RumorMessage) bool {
-	peers.Lock.Lock()
-	defer peers.Lock.Unlock()
+	peers.Lock()
+	defer peers.Unlock()
 	messageAdded := false
 
-	if elem, ok := peers.Peers[rumor.Origin]; ok {
-		messageAdded = elem.addMessage(rumor)
+	if elem, ok := peers.Peers[rumor.Origin]; ok { // Check if we already have the Origin
+		messageAdded = elem.addMessage(rumor) // If yes, add message
 	} else {
-		peers.Peers[rumor.Origin] = newPeer(len(peers.Status))
-		peers.Status = append(peers.Status, PeerStatus{ // New peer, add to status
-			Identifier: rumor.Origin,
-			NextID:     1,
-		})
+		peers.Peers[rumor.Origin] = newPeer()
 		messageAdded = peers.Peers[rumor.Origin].addMessage(rumor)
-	}
-	if messageAdded {
-		peers.Status[peers.Peers[rumor.Origin].ID].NextID += 1 // If message was added, increase status ID
 	}
 	return messageAdded
 }
 
-/*func (peers *GossipPeers) GetStatusMessage() []PeerStatus {
-	peers.Lock.RLock()
-	defer peers.Lock.RUnlock()
+func (peers *GossipPeers) GetStatusPacket() *StatusPacket {
+	peers.RLock()
+	defer peers.RUnlock()
 	var statusMessages []PeerStatus
-	for _, p := range peers.Peers {
-		statusMessages = append(statusMessages, p.Status)
+	for pName, p := range peers.Peers {
+		statusMessages = append(statusMessages, PeerStatus{Identifier: pName, NextID: p.NextID})
 	}
-	return peers.Status
-}*/
+	return &StatusPacket{Want: statusMessages}
+}
 
-/*func (peers *GossipPeers) NextId(identifier string) uint32 {
-	peers.Lock.RLock()
-	defer peers.Lock.RUnlock()
-	return peers.Peers[identifier].NextID
-}*/
-
-func (peers *GossipPeers) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool) {
-	peers.Lock.RLock()
-	defer peers.Lock.RUnlock()
+func (peers *GossipPeers) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool, bool) {
+	// Returns (missingMessage, isMissingMessage, amMissingMessage
+	peers.RLock()
+	defer peers.RUnlock()
 	statusMap := statusPacket.ToMap()
 
 	var message *RumorMessage
-	for identifier, peer := range peers.Peers {
-		if nextId, ok := statusMap[identifier]; ok {
-			if nextId < peer.NextID { // Peer is missing messages from peer.Identifier
-				message = peers.Peers[identifier].Messages[nextId] // Get the missing message
-				return message, false
-			}
-		} else if peer.NextID > 1 { // Peer not present and has messages
-			message = peers.Peers[identifier].Messages[1] // Get the first message
-			return message, false
-		}
-	}
-	for _, status := range statusPacket.Want {
-		if _, ok := peers.Peers[status.Identifier]; !ok { // Peer not present
-			if status.NextID > 1 {
-				return nil, true
-			}
-		} else {
-			elem := peers.Peers[status.Identifier]
-			if elem.NextID < status.NextID {
-				return nil, true
-			}
-		}
 
+	// First check if they have missing messages
+	for identifier, peer := range peers.Peers {
+		nextId, ok := statusMap[identifier]
+		if !ok && peer.NextID > 1{ // The peer is not present in their status, and has new messages
+			message = peer.Messages[1]
+			return message, true, false // Send pack first message
+		} else if ok && nextId < peer.NextID{ // They have missing messages from this peer
+			message = peer.Messages[nextId] // Select the missing message
+			return message, true, false
+		}
 	}
-	return nil, false
+
+	// Then check if I have missing messages
+	for _, status := range statusPacket.Want {
+		elem, ok := peers.Peers[status.Identifier]
+		if !ok {
+			return nil, false, status.NextID > 1 // If peer not present locally, check if they have at least one message
+		} else {
+			return nil, false, status.NextID > elem.NextID // If peer present, check if their NextId is bigger then mine
+		}
+	}
+	return nil, false, false
 }
