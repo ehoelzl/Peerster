@@ -11,11 +11,16 @@ import (
 
 func main() {
 	uiPort := flag.String("UIPort", "8080", "port for the UI client (default \"8080\")")
-	msg := flag.String("msg", "", "message to be sent (REQUIRED)")
+	dest := flag.String("dest", "", "destination for the private message; can be omitted")
+	msg := flag.String("msg", "", "message to be sent; if the -dest flag is present, this is a private message, otherwise it's a rumor message")
 	flag.Parse()
-	log.Printf("Message %v to be sent to %v\n", *msg, *uiPort)
 
-	message := Message{Text: *msg}
+	if len(*msg) == 0 {
+		log.Println("Cannot send empty message")
+		return
+	}
+
+	message := Message{Text: *msg, Destination: *dest}
 	packetBytes, err := protobuf.Encode(&message)
 	utils.CheckError(err, "Error encoding message")
 

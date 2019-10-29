@@ -7,13 +7,24 @@ import (
 )
 
 type Message struct {
-	Text string
+	Text        string
+	Destination string
+	File        string
+	Request     *[]byte
 }
 
 type SimpleMessage struct {
 	OriginalName  string
 	RelayPeerAddr string
 	Contents      string
+}
+
+type PrivateMessage struct {
+	Origin      string
+	ID          uint32
+	Text        string
+	Destination string
+	HopLimit    uint32
 }
 
 type GossipPacket struct {

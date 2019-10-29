@@ -83,7 +83,7 @@ func (peers *GossipPeers) GetStatusPacket() *StatusPacket {
 }
 
 func (peers *GossipPeers) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool, bool) {
-	// Returns (missingMessage, isMissingMessage, amMissingMessage
+	// Returns (missingMessage, isMissingMessage, amMissingMessage)
 	peers.RLock()
 	defer peers.RUnlock()
 	statusMap := statusPacket.ToMap()
