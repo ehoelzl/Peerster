@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var hopLimit uint32 = 10
+
 type Gossiper struct {
 	ClientAddress *net.UDPAddr
 	ClientConn    *net.UDPConn
@@ -70,17 +72,17 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 }
 
 func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
+	// Decode the message
 	message := &Message{}
 	err := protobuf.Decode(packetBytes, message)
 	if err != nil {
 		log.Println("Could not decode packet from client")
 		return
 	}
-	if len(message.Text) == 0 { // Client cannot send empty message
-		log.Println("Empty message")
+	if len(message.Destination) > 0 {
+		gp.HandleClientPrivateMessage(message)
 		return
 	}
-
 	fmt.Printf("CLIENT MESSAGE %v\n", message.Text)
 
 	if gp.IsSimple { // Simple case
@@ -97,6 +99,27 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 			gp.StartRumormongering(rumorMessage, nil, false, true)
 		}
 	}
+}
+
+func (gp *Gossiper) HandleClientPrivateMessage(message *Message) {
+	fmt.Printf("CLIENT MESSAGE %v dest %v\n", message.Text, message.Destination)
+
+	if message.Destination == gp.Name { // In case someone wants to play it smart
+		fmt.Printf("PRIVATE origin %v hop-limit %v contents %v\n", gp.Name, 10, message.Text)
+		return
+	}
+	pm := &PrivateMessage{
+		Origin:      gp.Name,
+		ID:          0,
+		Text:        message.Text,
+		Destination: message.Destination,
+		HopLimit:    hopLimit - 1,
+	}
+	nextHop, ok := gp.Routing.GetNextHop(message.Destination)
+	if ok {
+		gp.SendPacket(nil, nil, nil, pm, nextHop)
+	}
+
 }
 
 func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
@@ -125,7 +148,8 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 
 		} else if status := packet.Status; status != nil { //StatusPacket
 			gp.HandleStatusPacket(from, status)
-
+		} else if pm := packet.Private; pm != nil { // Private message
+			gp.HandlePrivateMessage(from, pm)
 		} else {
 			log.Printf("Empty packet from %v\n", from.String())
 			return
@@ -134,15 +158,15 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 }
 
 func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
-	// Assumes rumor is not nil
+	// Assumes rumor is not nil, handles RumorMessages (chat or route)
 
 	fmt.Printf("RUMOR origin %v from %v ID %v contents %v\n", rumor.Origin, from.String(), rumor.ID, rumor.Text)
 	gp.Nodes.Print()
-	messageAdded := gp.Peers.AddRumorMessage(rumor) // Add message to list
+	messageAdded := gp.Peers.AddRumorMessage(rumor) // Add message to list // TODO change this to add all messages
 	go gp.SendStatusMessage(from)                   // Send back ack
 
 	if messageAdded { // If message was not seen before, continue rumor mongering to other nodes
-		gp.Routing.UpdateRoute(rumor.Origin, from.String(), len(rumor.Text) == 0) // Update routing table
+		gp.Routing.UpdateRoute(rumor.Origin, from, len(rumor.Text) == 0) // Update routing table
 
 		except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
 		gp.StartRumormongering(rumor, except, false, true)
@@ -166,17 +190,31 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 		}
 	} else {
 		if isMissing { // Means they are missing a message
-			gp.SendPacket(nil, missingMessage, nil, from) // Send back missing message
+			gp.SendPacket(nil, missingMessage, nil, nil, from) // Send back missing message
 		} else if amMissing { // Means I am missing a message
 			gp.SendStatusMessage(from) // I have missing messages
 		}
 	}
 }
 
+func (gp *Gossiper) HandlePrivateMessage(from *net.UDPAddr, pm *PrivateMessage) {
+	if pm.Destination == gp.Name {
+		fmt.Printf("PRIVATE origin %v hop-limit %v contents %v\n", pm.Origin, pm.HopLimit, pm.Text)
+		return
+	}
+	if pm.HopLimit > 0 {
+		nextHop, ok := gp.Routing.GetNextHop(pm.Destination)
+		if ok {
+			pm.HopLimit -= 1
+			gp.SendPacket(nil, nil, nil, pm, nextHop)
+		}
+	}
+
+}
 /*-------------------- Methods used for transferring messages and broadcasting ------------------------------*/
 
-func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, to *net.UDPAddr) {
-	gossipPacket, err := protobuf.Encode(&GossipPacket{Simple: simple, Rumor: rumor, Status: status})
+func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, private *PrivateMessage, to *net.UDPAddr) {
+	gossipPacket, err := protobuf.Encode(&GossipPacket{Simple: simple, Rumor: rumor, Status: status, Private: private})
 	if err != nil {
 		log.Printf("Error encoding gossipPacket for %v\n", to.String())
 		return
@@ -192,7 +230,7 @@ func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, statu
 func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 	// Creates the vector clock for the given peer
 	statusPacket := gp.Peers.GetStatusPacket()
-	gp.SendPacket(nil, nil, statusPacket, to)
+	gp.SendPacket(nil, nil, statusPacket, nil, to)
 }
 
 func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) {
@@ -202,7 +240,7 @@ func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) 
 
 	for nodeAddr, node := range gp.Nodes.Addresses {
 		if nodeAddr != except.String() {
-			gp.SendPacket(packet, nil, nil, node.udpAddr)
+			gp.SendPacket(packet, nil, nil, nil, node.udpAddr)
 		}
 	}
 }
@@ -224,7 +262,7 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 	}
 	except[randomNode.String()] = struct{}{} // Add node we send to, to the except list
 
-	gp.SendPacket(nil, message, nil, randomNode) // Send rumor
+	gp.SendPacket(nil, message, nil, nil, randomNode) // Send rumor
 	if withTimeout {
 		callback := func() {
 			fmt.Printf("Timeout on message %v sent to %v\n", message, randomNode)
@@ -242,7 +280,8 @@ func (gp *Gossiper) SendRouteRumor() {
 	randomNode, ok := gp.Nodes.GetRandom(nil)
 	if ok {
 		routeRumor := gp.Peers.CreateNewMessage(gp.Name, "")
-		gp.SendPacket(nil, routeRumor, nil, randomNode)
+		gp.Peers.AddRumorMessage(routeRumor)
+		gp.SendPacket(nil, routeRumor, nil, nil, randomNode)
 
 	}
 }

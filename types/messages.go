@@ -28,9 +28,10 @@ type PrivateMessage struct {
 }
 
 type GossipPacket struct {
-	Simple *SimpleMessage
-	Rumor  *RumorMessage
-	Status *StatusPacket
+	Simple  *SimpleMessage
+	Rumor   *RumorMessage
+	Status  *StatusPacket
+	Private *PrivateMessage
 }
 
 type RumorMessage struct { // No need to add RelayPeerAddr as it is deduced from sending node
