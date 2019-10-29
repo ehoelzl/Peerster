@@ -16,9 +16,11 @@ func NewRoutingTable() *RoutingTable {
 	}
 }
 
-func (rt *RoutingTable) UpdateRoute(origin, address string) {
+func (rt *RoutingTable) UpdateRoute(origin, address string, isRouteRumor bool) {
 	rt.Lock()
 	defer rt.Unlock()
 	rt.Table[origin] = address
-	fmt.Printf("DSDV %v %v\n", origin, address)
+	if !isRouteRumor {
+		fmt.Printf("DSDV %v %v\n", origin, address)
+	}
 }

@@ -46,6 +46,18 @@ func NewPeers(identifier string) *GossipPeers {
 	}
 }
 
+func (peers *GossipPeers) CreateNewMessage(origin string, message string) *RumorMessage {
+	//Creates the next message for the given origin (only to be used when sending chat message or rumor message from calling gossiper)
+	peers.RLock()
+	defer peers.RUnlock()
+	rumor := &RumorMessage{
+		Origin: origin,
+		ID:     peers.Peers[origin].NextID,
+		Text:   message,
+	}
+	return rumor
+}
+
 func (peers *GossipPeers) AddRumorMessage(rumor *RumorMessage) bool {
 	peers.Lock()
 	defer peers.Unlock()

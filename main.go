@@ -40,12 +40,13 @@ func main() {
 	name := flag.String("name", "", "name of the gossiper (REQUIRED)")
 	peers := flag.String("peers", "", "coma separated list of peers of the form ip:port")
 	simple := flag.Bool("simple", false, "run gossiper in simple broadcast mode")
-	antiEntropy := flag.Uint("antiEntropy", 10, "AntiEntropy value (default 10 seconds)")
+	antiEntropy := flag.Uint("antiEntropy", 10, "Use given timeout in seconds for anti-entropy. If the flag is absent, the default anti-entropy duration is 10 seconds")
+	rtimer := flag.Int("rtimer", 0, "Timeout in seconds to send route rumors. 0 (default) means disable sending route rumors.")
 
 	flag.Parse()
 	CLIAddress := "127.0.0.1:" + *uiPort
 	GUIListen := "127.0.0.1:8080"
-	gp, created := NewGossiper(CLIAddress, *gossipAddr, *name, *peers, *simple, *antiEntropy)
+	gp, created := NewGossiper(CLIAddress, *gossipAddr, *name, *peers, *simple, *antiEntropy, *rtimer)
 	if created {
 		go NewServer(GUIListen, gp)
 		go StartGossipListener(gp)

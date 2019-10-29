@@ -21,7 +21,7 @@ type Gossiper struct {
 	Routing       *RoutingTable
 }
 
-func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint) (*Gossiper, bool) {
+func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int) (*Gossiper, bool) {
 	// Creates new gossiper with the given parameters
 	if len(name) == 0 {
 		fmt.Println("Please provide a name for the gossiper")
@@ -61,6 +61,11 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		}
 	}, time.Duration(antiEntropy))
 
+	// Route timer
+	if rtimer > 0 {
+		go utils.NewTicker(gossiper.SendRouteRumor, time.Duration(rtimer))
+		gossiper.SendRouteRumor() // Start-up Route rumor
+	}
 	return gossiper, true
 }
 
@@ -71,7 +76,7 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 		log.Println("Could not decode packet from client")
 		return
 	}
-	if len(message.Text) == 0 {
+	if len(message.Text) == 0 { // Client cannot send empty message
 		log.Println("Empty message")
 		return
 	}
@@ -86,14 +91,10 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 		}
 		gp.SimpleBroadcast(simpleMessage, nil)
 	} else {
-		message := &RumorMessage{
-			Origin: gp.Name,
-			ID:     gp.Peers.Peers[gp.Name].NextID,
-			Text:   message.Text,
-		}
-		messageAdded := gp.Peers.AddRumorMessage(message) // Usually, message is always added
-		if messageAdded {                                 //Rumor Only if message was not seen before (i.e. added)
-			gp.StartRumormongering(message, nil, false, true)
+		rumorMessage := gp.Peers.CreateNewMessage(gp.Name, message.Text)
+		messageAdded := gp.Peers.AddRumorMessage(rumorMessage) // Usually, message is always added
+		if messageAdded {                                      //Rumor Only if message was not seen before (i.e. added)
+			gp.StartRumormongering(rumorMessage, nil, false, true)
 		}
 	}
 }
@@ -134,13 +135,15 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 
 func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 	// Assumes rumor is not nil
+
 	fmt.Printf("RUMOR origin %v from %v ID %v contents %v\n", rumor.Origin, from.String(), rumor.ID, rumor.Text)
 	gp.Nodes.Print()
 	messageAdded := gp.Peers.AddRumorMessage(rumor) // Add message to list
 	go gp.SendStatusMessage(from)                   // Send back ack
 
 	if messageAdded { // If message was not seen before, continue rumor mongering to other nodes
-		gp.Routing.UpdateRoute(rumor.Origin, from.String()) // Update routing table
+		gp.Routing.UpdateRoute(rumor.Origin, from.String(), len(rumor.Text) == 0) // Update routing table
+
 		except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
 		gp.StartRumormongering(rumor, except, false, true)
 	}
@@ -233,5 +236,13 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 
 }
 
-
 /*----------------------- Methods for Routing -----------------------*/
+
+func (gp *Gossiper) SendRouteRumor() {
+	randomNode, ok := gp.Nodes.GetRandom(nil)
+	if ok {
+		routeRumor := gp.Peers.CreateNewMessage(gp.Name, "")
+		gp.SendPacket(nil, routeRumor, nil, randomNode)
+
+	}
+}
