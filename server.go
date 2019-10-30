@@ -26,7 +26,7 @@ func (s *Server) GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	for identifier, p := range rumors {
 		messages := make(map[uint32]string)
-		for _, m := range p.Messages{
+		for _, m := range p.Messages {
 			if len(m.Text) > 0 {
 				messages[m.ID] = m.Text
 			}
@@ -63,7 +63,7 @@ func (s *Server) GetOriginHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	var origins []string
 	table := s.Gossiper.Routing.GetAllOrigins()
-	for o,_ := range table {
+	for o, _ := range table {
 		origins = append(origins, o)
 	}
 	jsonString, _ := json.Marshal(origins)
@@ -116,15 +116,17 @@ func (s *Server) PostNodeHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Println("Could not decode packet from GUI")
+	} else if len(newNode.Text) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
 	} else {
 		nodeAddress, err := net.ResolveUDPAddr("udp4", newNode.Text)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
-		} else {
-			w.WriteHeader(http.StatusOK)
-			go s.Gossiper.Nodes.Add(nodeAddress)
 		}
+		w.WriteHeader(http.StatusOK)
+		go s.Gossiper.Nodes.Add(nodeAddress)
+
 	}
 }
 

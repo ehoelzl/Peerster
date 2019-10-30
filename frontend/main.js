@@ -151,7 +151,7 @@ class MessagesBox extends Component {
   render () {
     return html`
         <section>
-            <div style="font-weight: bold; margin-bottom: 20px">Messages</div>
+            <div style="font-weight: bold; margin-bottom: 20px">Rumor Messages</div>
             <div style="margin-bottom: 15px; border-bottom: 2px dotted">
                 <div style="width: 220px;float: left; font-family: monospace">From</div>
                 <div>Message</div>
@@ -173,6 +173,10 @@ class ChatBox extends Component {
 
   handleSubmit(event){
     event.preventDefault()
+    if (this.state.message.length == 0 ){
+      alert("Cannot send empty message")
+      return
+    }
     $.ajax({
       type: 'POST',
       url: uiAddress + '/message',
@@ -186,7 +190,7 @@ class ChatBox extends Component {
 
   render () {
     return html `
-        <div style="font-weight: bold">Chat Box</div>
+        <div style="font-weight: bold">Rumor Chat Box</div>
         <hr style="border-top: 2px"/>
         <form style="width: 100px" onSubmit=${this.handleSubmit.bind(this)}>
             <textarea value=${this.state.message} onChange=${this.handleChange.bind(this)} style="background: white; resize: none; height:150px; width: 270%"/>
@@ -196,8 +200,76 @@ class ChatBox extends Component {
   }
 }
 
-class App extends Component {
+class Popup extends Component {
+  render() {
+    return html`
+        <div class='popup'>
+          <div class='popup\_inner'>
+            <h1>{this.props.text}</h1>
+            <button onClick={this.props.closePopup}>close me</button>
+          </div>
+        </div>
+    `
+  }
+}
 
+class PrivateMessages extends Component {
+  state = {peers: [], popUp: false};
+
+  refreshOrigins() {
+    $.getJSON(uiAddress + '/origins', function(data) {
+      if (data != null){
+        this.setState(({peers}) => ({peers: data}))
+      }
+    }.bind(this)).fail(function()  {
+      this.setState(({peers}) => ({peers : []}))
+    }.bind(this))
+  }
+
+  componentDidMount(){
+    this.refreshOrigins()
+    setInterval(() => this.refreshOrigins(), 15*1000)
+  }
+
+  renderPeerButton(peer) {
+    return html`
+          <div class="message">
+            <div style="width: 50%;font-family: monospace; float: left; height: 100%">${peer}</div>
+            <div style="width: 50%; float: right"><button onClick=${this.togglePopUp.bind(this)}>Send Private Message</button></div>
+          </div>
+    `
+  }
+
+  togglePopUp() {
+    this.setState(({popUp}) => ({popUp: !this.state.popUp}))
+  }
+
+  renderPopUp() {
+    if (this.state.popUp) {
+      return html`<${Popup}/>`
+    }
+  }
+
+
+  render() {
+    console.log(this.state.popUp)
+    return html`
+      <section>
+        ${this.renderPopUp()}
+        <div style="overflow: hidden">
+               <div style="float: left;margin-right: 20px;font-weight: bold">Known Peers</div>
+               <div style="float: left" class="is-special"> ${this.state.peers.length}</div>
+        </div>
+        <hr style="border-top: 2px"/>
+        <div class="peers" style="margin-bottom: 20px">
+            ${this.state.peers.map(p => this.renderPeerButton(p))}
+        </div>
+      </section>
+    `
+
+  }
+}
+class App extends Component {
   render () {
     return html`
       <header class="container">
@@ -210,7 +282,7 @@ class App extends Component {
           <div class="box b"><${MessagesBox}/></div>
           <div class="box c"><${NodesBox}/></div>
           <div class="box d"><${ChatBox}/></div>
-
+          <div class="box e"><${PrivateMessages}/></div>
        </div>
       </section>
     `
