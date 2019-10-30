@@ -21,18 +21,21 @@ type Server struct {
 func (s *Server) GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	messageMap := make(map[string]map[uint32]string)
-	for identifier, p := range s.Gossiper.Rumors.Origins {
-		numMessages := len(p.Messages)
-		if numMessages > 0 {
-			messages := make(map[uint32]string)
-			for i := 1; i <= numMessages; i++ {
-				messages[uint32(i)] = p.Messages[uint32(i)].Text
+	rumors := s.Gossiper.Rumors.GetAll()
+	response := make(map[string]map[uint32]string) // Prepare map for response
+
+	for identifier, p := range rumors {
+		messages := make(map[uint32]string)
+		for _, m := range p.Messages{
+			if len(m.Text) > 0 {
+				messages[m.ID] = m.Text
 			}
-			messageMap[identifier] = messages
+		}
+		if len(messages) > 0 {
+			response[identifier] = messages
 		}
 	}
-	jsonString, _ := json.Marshal(messageMap)
+	jsonString, _ := json.Marshal(response)
 	_, err := io.WriteString(w, string(jsonString))
 	if err != nil {
 		log.Fatal(err)
@@ -43,7 +46,8 @@ func (s *Server) GetNodeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	var nodesString []string
-	for n, _ := range s.Gossiper.Nodes.Addresses {
+	nodes := s.Gossiper.Nodes.GetAll()
+	for n, _ := range nodes {
 		nodesString = append(nodesString, n)
 	}
 
@@ -54,12 +58,29 @@ func (s *Server) GetNodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) GetOriginHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	var origins []string
+	table := s.Gossiper.Routing.GetAllOrigins()
+	for o,_ := range table {
+		origins = append(origins, o)
+	}
+	jsonString, _ := json.Marshal(origins)
+	_, err := io.WriteString(w, string(jsonString))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func (s *Server) GetIdHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
+
 	response := make(map[string]string)
 	response["gossipAddress"] = s.Gossiper.GossipAddress.String()
 	response["name"] = s.Gossiper.Name
 	jsonString, _ := json.Marshal(response)
+
 	_, err := io.WriteString(w, string(jsonString))
 	if err != nil {
 		log.Fatal(err)
@@ -99,12 +120,10 @@ func (s *Server) PostNodeHandler(w http.ResponseWriter, r *http.Request) {
 		nodeAddress, err := net.ResolveUDPAddr("udp4", newNode.Text)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			log.Printf("Could not resolve address %v, added by user\n", newNode.Text)
 			return
 		} else {
 			w.WriteHeader(http.StatusOK)
 			go s.Gossiper.Nodes.Add(nodeAddress)
-			log.Printf("Added new node at %v\n", nodeAddress)
 		}
 	}
 }
@@ -122,6 +141,7 @@ func NewServer(addr string, gossiper *Gossiper) {
 	r.HandleFunc("/message", server.PostMessageHandler).Methods("POST")
 	r.HandleFunc("/node", server.PostNodeHandler).Methods("POST")
 	r.HandleFunc("/id", server.GetIdHandler).Methods("GET")
+	r.HandleFunc("/origins", server.GetOriginHandler).Methods("GET")
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./frontend/")))
 	handler := cors.Default().Handler(r)
 	srv := &http.Server{
