@@ -201,12 +201,21 @@ class ChatBox extends Component {
 }
 
 class Popup extends Component {
+  state = {message : ""}
+
+  handleChange() {
+    this.setState(({ message }) => ({message : event.target.value}))
+  }
   render() {
     return html`
         <div class='popup'>
           <div class='popup\_inner'>
-            <h1>{this.props.text}</h1>
-            <button onClick={this.props.closePopup}>close me</button>
+            <div style="text-align: center; margin-top: 30px; margin-bottom: 15px">Send private message to ${this.props.destination}</div>
+            <textarea value=${this.state.message} onChange=${this.handleChange.bind(this)} style="background: white; width: 50%; height: 100px; resize: none"/>
+            <p>
+            <button onClick=${() => this.props.send(this.props.destination, this.state.message)} style="width: 200px;">Send</button>
+            <button onClick=${this.props.cancel} style="width: 200px">Cancel</button>
+            </p>
           </div>
         </div>
     `
@@ -214,12 +223,12 @@ class Popup extends Component {
 }
 
 class PrivateMessages extends Component {
-  state = {peers: [], popUp: false};
+  state = {peers: [], popUp: false, destination : null};
 
   refreshOrigins() {
     $.getJSON(uiAddress + '/origins', function(data) {
       if (data != null){
-        this.setState(({peers}) => ({peers: data}))
+        this.setState(({peers}) => ({peers: data.sort()}))
       }
     }.bind(this)).fail(function()  {
       this.setState(({peers}) => ({peers : []}))
@@ -231,12 +240,37 @@ class PrivateMessages extends Component {
     setInterval(() => this.refreshOrigins(), 15*1000)
   }
 
+  sendPrivateMessage(to, message) {
+    if (message.length == 0) {
+      alert("Cannot send empty private message")
+    } else {
+      $.ajax({
+        type: 'POST',
+        url: uiAddress + '/message',
+        async: false,
+        data: JSON.stringify({"Text": message, "Destination": to}),
+        contentType: "application/json",
+        dataType: 'json',
+        success: alert("Message sent successfully")
+      }).fail((d, ts, xhr) => {
+        if (d.status == 400){
+          alert("Could not send private message")
+        }
+      })
+    }
+    this.togglePopUp()
+  }
+
   renderPeerButton(peer) {
     return html`
           <div class="message">
             <div style="width: 50%;font-family: monospace; float: left; height: 100%">${peer}</div>
-            <div style="width: 50%; float: right"><button onClick=${this.togglePopUp.bind(this)}>Send Private Message</button></div>
-          </div>
+            <div style="width: 50%; float: right"><button onClick=${() => {
+              this.setState(({destination}) => ({destination: peer}));
+              this.togglePopUp()
+      
+              }}>Send Private Message</button></div>
+            </div>
     `
   }
 
@@ -246,13 +280,11 @@ class PrivateMessages extends Component {
 
   renderPopUp() {
     if (this.state.popUp) {
-      return html`<${Popup}/>`
+      return html`<${Popup} destination=${this.state.destination} send=${this.sendPrivateMessage.bind(this)} cancel=${this.togglePopUp.bind(this)}/>`
     }
   }
 
-
   render() {
-    console.log(this.state.popUp)
     return html`
       <section>
         ${this.renderPopUp()}
