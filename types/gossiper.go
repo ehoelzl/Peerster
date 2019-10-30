@@ -236,10 +236,8 @@ func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 
 func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) {
 	// Double functionality: Broadcasts to all peers if except == nil, or to all except the given one
-	gp.Nodes.RLock()
-	defer gp.Nodes.RUnlock()
-
-	for nodeAddr, node := range gp.Nodes.Addresses {
+	nodeAddresses := gp.Nodes.GetAll()
+	for nodeAddr, node := range nodeAddresses {
 		if nodeAddr != except.String() {
 			gp.SendPacket(packet, nil, nil, nil, node.udpAddr)
 		}

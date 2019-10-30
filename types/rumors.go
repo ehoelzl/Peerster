@@ -6,13 +6,13 @@ import (
 
 /*PeerRumors is an encapsulation of all the messages with one origin (the peer)*/
 type PeerRumors struct {
-	NextID   uint32
+	nextId   uint32
 	Messages map[uint32]*RumorMessage
 }
 
 func newPeerRumors() *PeerRumors {
 	return &PeerRumors{
-		NextID:   1,
+		nextId:   1,
 		Messages: make(map[uint32]*RumorMessage),
 	}
 }
@@ -20,16 +20,16 @@ func newPeerRumors() *PeerRumors {
 func (p *PeerRumors) addRumor(rumor *RumorMessage) bool {
 	// Adds the given message to the peer, checks if rumor.ID == p.NextId
 	isNewRumor := false
-	if rumor.ID >= p.NextID { // New message
+	if rumor.ID >= p.nextId { // New message
 		isNewRumor = true
 		p.Messages[rumor.ID] = rumor // Add new message to list
-		if rumor.ID == p.NextID { // Update
-			p.NextID += 1
+		if rumor.ID == p.nextId {    // Update
+			p.nextId += 1
 		}
 		// Now see if we should increment next ID (received later messages)
-		for _, ok := p.Messages[p.NextID]; ok; { // Means the Next ID should be incremented
-			p.NextID +=1
-			_, ok = p.Messages[p.NextID]
+		for _, ok := p.Messages[p.nextId]; ok; { // Means the Next ID should be incremented
+			p.nextId +=1
+			_, ok = p.Messages[p.nextId]
 		}
 	}
 	return isNewRumor
@@ -38,7 +38,7 @@ func (p *PeerRumors) addRumor(rumor *RumorMessage) bool {
 /*======================= Definition of A Collection of peers =======================*/
 /*Data structure that encapsulates all the RumorMessages and their origin*/
 type Rumors struct {
-	Origins map[string]*PeerRumors
+	rumors map[string]*PeerRumors
 	sync.RWMutex
 }
 
@@ -49,7 +49,7 @@ func NewRumorStruct(identifier string) *Rumors {
 	rumors[identifier] = initialPeer
 
 	return &Rumors{
-		Origins: rumors,
+		rumors: rumors,
 	}
 }
 
@@ -59,7 +59,7 @@ func (r *Rumors) CreateNewRumor(origin string, message string) *RumorMessage {
 	defer r.RUnlock()
 	rumor := &RumorMessage{
 		Origin: origin,
-		ID:     r.Origins[origin].NextID,
+		ID:     r.rumors[origin].nextId,
 		Text:   message,
 	}
 	return rumor
@@ -70,11 +70,11 @@ func (r *Rumors) AddRumorMessage(rumor *RumorMessage) bool {
 	defer r.Unlock()
 	isNewRumor := false
 
-	if elem, ok := r.Origins[rumor.Origin]; ok { // Check if we already have the Origin
+	if elem, ok := r.rumors[rumor.Origin]; ok { // Check if we already have the Origin
 		isNewRumor = elem.addRumor(rumor) // If yes, add message
 	} else {
-		r.Origins[rumor.Origin] = newPeerRumors()
-		isNewRumor = r.Origins[rumor.Origin].addRumor(rumor)
+		r.rumors[rumor.Origin] = newPeerRumors()
+		isNewRumor = r.rumors[rumor.Origin].addRumor(rumor)
 
 	}
 	return isNewRumor
@@ -84,8 +84,8 @@ func (r *Rumors) GetStatusPacket() *StatusPacket {
 	r.RLock()
 	defer r.RUnlock()
 	var statusMessages []PeerStatus
-	for pName, p := range r.Origins {
-		statusMessages = append(statusMessages, PeerStatus{Identifier: pName, NextID: p.NextID})
+	for pName, p := range r.rumors {
+		statusMessages = append(statusMessages, PeerStatus{Identifier: pName, NextID: p.nextId})
 	}
 	return &StatusPacket{Want: statusMessages}
 }
@@ -99,12 +99,12 @@ func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool,
 	var message *RumorMessage
 
 	// First check if they have missing messages
-	for identifier, peer := range r.Origins {
+	for identifier, peer := range r.rumors {
 		nextId, ok := statusMap[identifier]
-		if !ok && peer.NextID > 1{ // The peer is not present in their status, and has new messages
+		if !ok && peer.nextId > 1{ // The peer is not present in their status, and has new messages
 			message = peer.Messages[1]
 			return message, true, false // Send pack first message
-		} else if ok && nextId < peer.NextID{ // They have missing messages from this peer
+		} else if ok && nextId < peer.nextId { // They have missing messages from this peer
 			message = peer.Messages[nextId] // Select the missing message
 			return message, true, false
 		}
@@ -112,14 +112,21 @@ func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool,
 
 	// Then check if I have missing messages
 	for _, status := range statusPacket.Want {
-		elem, ok := r.Origins[status.Identifier]
+		elem, ok := r.rumors[status.Identifier]
 		if !ok { // If peer not present locally, check if they have at least one message
 			if status.NextID > 1{
 				return nil, false, true
 			}
-		} else if status.NextID > elem.NextID{ //check if their NextId is bigger then mine
+		} else if status.NextID > elem.nextId { //check if their NextId is bigger then mine
 			return nil, false, true
 		}
 	}
 	return nil, false, false
+}
+
+func (r *Rumors) GetAll() map[string]*PeerRumors {
+	//Function only for server
+	r.RLock()
+	defer r.RUnlock()
+	return r.rumors
 }

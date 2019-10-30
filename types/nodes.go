@@ -17,7 +17,7 @@ type Node struct {
 	udpAddr  *net.UDPAddr
 }
 type Nodes struct {
-	Addresses map[string]*Node
+	nodes map[string]*Node
 	sync.RWMutex
 }
 
@@ -39,7 +39,7 @@ func NewNodes(addresses string) *Nodes {
 		}
 	}
 	return &Nodes{
-		Addresses: nodes,
+		nodes: nodes,
 	}
 }
 
@@ -47,8 +47,8 @@ func (nodes *Nodes) Add(address *net.UDPAddr) {
 	// Checks if the given `*net.UDPAddr` is in `gp.Nodes`, if not, it adds it.
 	nodes.Lock()
 	defer nodes.Unlock()
-	if _, ok := nodes.Addresses[address.String()]; !ok {
-		nodes.Addresses[address.String()] = &Node{
+	if _, ok := nodes.nodes[address.String()]; !ok {
+		nodes.nodes[address.String()] = &Node{
 			Ticker:   nil,
 			LastSent: nil,
 			udpAddr:  address,
@@ -57,10 +57,10 @@ func (nodes *Nodes) Add(address *net.UDPAddr) {
 }
 
 func (nodes *Nodes) GetRandom(except map[string]struct{}) (*net.UDPAddr, bool) {
-	// Returns a random address from the list of Addresses
+	// Returns a random address from the list of nodes
 	var toKeep []*net.UDPAddr
 	nodes.RLock()
-	for nodeAddr, node := range nodes.Addresses {
+	for nodeAddr, node := range nodes.nodes {
 		_, noSkip := except[nodeAddr] // If address in `except`
 		if except == nil || !noSkip {
 			toKeep = append(toKeep, node.udpAddr) // If the address of the peer is different than `except` we add it to the list
@@ -80,7 +80,7 @@ func (nodes *Nodes) Print() {
 	nodes.RLock()
 	defer nodes.RUnlock()
 
-	for peerAddr, _ := range nodes.Addresses {
+	for peerAddr, _ := range nodes.nodes {
 		stringAddresses = append(stringAddresses, peerAddr)
 	}
 
@@ -91,7 +91,7 @@ func (nodes *Nodes) StartTicker(address *net.UDPAddr, message *RumorMessage, cal
 	// Registers the given channel for the given message
 	nodes.Lock()
 	defer nodes.Unlock()
-	if node, ok := nodes.Addresses[address.String()]; ok {
+	if node, ok := nodes.nodes[address.String()]; ok {
 		if node.Ticker != nil {
 			node.Ticker.Stop() // Stop the running ticker
 		}
@@ -103,7 +103,7 @@ func (nodes *Nodes) StartTicker(address *net.UDPAddr, message *RumorMessage, cal
 func (nodes *Nodes) DeleteTicker(address *net.UDPAddr) {
 	nodes.Lock()
 	defer nodes.Unlock()
-	if node, ok := nodes.Addresses[address.String()]; ok {
+	if node, ok := nodes.nodes[address.String()]; ok {
 		node.Ticker.Stop()
 		node.Ticker = nil
 		node.LastSent = nil
@@ -114,7 +114,7 @@ func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr) (*RumorMessage, bool) {
 	nodes.Lock()
 	defer nodes.Unlock()
 	var lastMessage *RumorMessage
-	if node, ok := nodes.Addresses[address.String()]; ok {
+	if node, ok := nodes.nodes[address.String()]; ok {
 		if node.Ticker == nil {
 			return nil, false
 		}
@@ -130,4 +130,11 @@ func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr) (*RumorMessage, bool) {
 
 	}
 	return nil, false
+}
+
+func (nodes *Nodes) GetAll() map[string]*Node {
+	// Function only used by server
+	nodes.RLock()
+	defer nodes.RUnlock()
+	return nodes.nodes
 }
