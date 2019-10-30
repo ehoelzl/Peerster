@@ -73,6 +73,10 @@ class NodesBox extends Component {
       data: JSON.stringify({"Text": this.state.newNode}),
       contentType: "application/json",
       dataType: 'json'
+    }).fail((d, ts, xhr) => {
+      if (d.status == 400){
+        alert("Could not resolve address")
+      }
     });
     this.setState(({newNode}) => ({newNode: ""}))
     this.refreshNodes()
@@ -83,7 +87,7 @@ class NodesBox extends Component {
     return html`
       <section>
         <div style="overflow: hidden">
-             <div style="float: left;margin-right: 20px;font-weight: bold">Known Peers </div>
+             <div style="float: left;margin-right: 20px;font-weight: bold">Nodes</div>
              <div style="float: left" class="is-special"> ${this.state.nodes.length}</div>
         </div>
         <hr style="border-top: 2px"/>
@@ -127,16 +131,19 @@ class MessagesBox extends Component {
   printNodeMessages() {
     var items = [];
     for (var node in this.state.messages){
-      var numMessages = Object.keys(this.state.messages[node]).length
-      for (let _id = 1; _id <= numMessages; _id++){
-        var message = this.state.messages[node][_id]
-        items.push(html`<div class="message">
-                            <div style="width: 50%; float: right">${message}</div>
-                            <div style="width: 50%;font-family: monospace; float: left; height: 100%">${node}</div>
-
-                        </div>`)
-      }
-      items.push(html`<hr style="border-top: 1px dotted"/>`)
+        var messageIds = Object.keys(this.state.messages[node]).sort()
+        var numMessages = messageIds.length
+        for (let _id = 0; _id < numMessages; _id++){
+          var messageId = messageIds[_id]
+          var message = this.state.messages[node][messageId]
+          items.push(html`<div class="message">
+                              <div style="width: 50%;font-family: monospace; float: left; height: 100%">${node}</div>
+                              <div style="width: 50%; float: right">${message}</div>
+  
+  
+                          </div>`)
+        }
+        items.push(html`<hr style="border-top: 1px dotted"/>`)
     }
     return items
   }
