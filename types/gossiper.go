@@ -21,14 +21,11 @@ type Gossiper struct {
 	Nodes         *Nodes
 	Rumors        *Rumors // From name to peer
 	Routing       *RoutingTable
+	Files         *Files
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int) (*Gossiper, bool) {
 	// Creates new gossiper with the given parameters
-	if len(name) == 0 {
-		fmt.Println("Please provide a name for the gossiper")
-		return nil, false
-	}
 	clientAddr, err := net.ResolveUDPAddr("udp4", uiAddress)
 	utils.CheckFatalError(err, fmt.Sprintf("Could not resolve UI Address %v\n", uiAddress))
 
@@ -53,6 +50,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		Nodes:         NewNodes(initialPeers),
 		Rumors:        rumors,
 		Routing:       NewRoutingTable(),
+		Files:         NewFilesStruct(),
 	}
 
 	// AntiEntropy timer
@@ -65,7 +63,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 
 	// Route timer
 	if rtimer > 0 {
-		go utils.NewTicker(gossiper.SendRouteRumor, time.Duration(rtimer))
+		utils.NewTicker(gossiper.SendRouteRumor, time.Duration(rtimer))
 		gossiper.SendRouteRumor() // Start-up Route rumor
 	}
 	return gossiper, true
@@ -81,24 +79,28 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 	}
 	if message.Destination != nil {
 		gp.HandleClientPrivateMessage(message)
-		return
-	}
-	fmt.Printf("CLIENT MESSAGE %v\n", message.Text)
+	} else if message.File != nil { // handles File indexing
 
-	if gp.IsSimple { // Simple case
-		simpleMessage := &SimpleMessage{
-			OriginalName:  gp.Name,
-			RelayPeerAddr: gp.GossipAddress.String(),
-			Contents:      message.Text,
-		}
-		gp.SimpleBroadcast(simpleMessage, nil)
-	} else {
-		rumorMessage := gp.Rumors.CreateNewRumor(gp.Name, message.Text)
-		messageAdded := gp.Rumors.AddRumorMessage(rumorMessage) // Usually, message is always added
-		if messageAdded {                                      //Rumor Only if message was not seen before (i.e. added)
-			gp.StartRumormongering(rumorMessage, nil, false, true)
+		gp.Files.IndexNewFile(*message.File)
+	} else { // Handling rumor messages send by client
+		fmt.Printf("CLIENT MESSAGE %v\n", message.Text)
+
+		if gp.IsSimple { // Simple case
+			simpleMessage := &SimpleMessage{
+				OriginalName:  gp.Name,
+				RelayPeerAddr: gp.GossipAddress.String(),
+				Contents:      message.Text,
+			}
+			gp.SimpleBroadcast(simpleMessage, nil)
+		} else {
+			rumorMessage := gp.Rumors.CreateNewRumor(gp.Name, message.Text)
+			messageAdded := gp.Rumors.AddRumorMessage(rumorMessage) // Usually, message is always added
+			if messageAdded {                                       //Rumor Only if message was not seen before (i.e. added)
+				gp.StartRumormongering(rumorMessage, nil, false, true)
+			}
 		}
 	}
+
 }
 
 func (gp *Gossiper) HandleClientPrivateMessage(message *Message) {
@@ -163,7 +165,7 @@ func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 	fmt.Printf("RUMOR origin %v from %v ID %v contents %v\n", rumor.Origin, from.String(), rumor.ID, rumor.Text)
 	gp.Nodes.Print()
 	isNewRumor := gp.Rumors.AddRumorMessage(rumor) // Add message to list
-	go gp.SendStatusMessage(from)                 // Send back ack
+	go gp.SendStatusMessage(from)                  // Send back ack
 
 	if isNewRumor { // If message was not seen before, continue rumor mongering to other nodes
 		if rumor.Origin != gp.Name {
@@ -275,11 +277,11 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 
 }
 
-/*----------------------- Methods for Routing -----------------------*/
-
 func (gp *Gossiper) SendRouteRumor() {
 	// Creates a route rumor, adds it to the list and sends it to a random node
 	routeRumor := gp.Rumors.CreateNewRumor(gp.Name, "")
 	gp.Rumors.AddRumorMessage(routeRumor)
 	gp.StartRumormongering(routeRumor, nil, false, true)
 }
+
+/*----------------------- Methods for Routing -----------------------*/
