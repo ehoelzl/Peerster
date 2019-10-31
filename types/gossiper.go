@@ -81,7 +81,6 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 	if message.Destination != nil {
 		gp.HandleClientPrivateMessage(message)
 	} else if message.File != nil { // handles File indexing
-
 		gp.Files.IndexNewFile(*message.File)
 	} else { // Handling rumor messages send by client
 		fmt.Printf("CLIENT MESSAGE %v\n", message.Text)
@@ -120,7 +119,7 @@ func (gp *Gossiper) HandleClientPrivateMessage(message *Message) {
 	}
 	nextHop, ok := gp.Routing.GetNextHop(*message.Destination)
 	if ok {
-		gp.SendPacket(nil, nil, nil, pm, nextHop)
+		gp.SendPacket(nil, nil, nil, pm, nil, nil, nextHop)
 	}
 
 }
@@ -148,17 +147,22 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 	} else {
 		if rumor := packet.Rumor; rumor != nil { // RumorMessage
 			gp.HandleRumorMessage(from, rumor)
-
 		} else if status := packet.Status; status != nil { //StatusPacket
 			gp.HandleStatusPacket(from, status)
 		} else if pm := packet.Private; pm != nil { // Private message
 			gp.HandlePrivateMessage(from, pm)
+		} else if dr := packet.DataRequest; dr != nil { // data request
+			gp.HandleDataRequest(from, dr)
+		} else if dr := packet.DataReply; dr != nil { // data reply
+			gp.HandleDataReply(from, dr)
 		} else {
 			log.Printf("Empty packet from %v\n", from.String())
 			return
 		}
 	}
 }
+
+/*-------------------- Methods used for handling gossip packets  ------------------------------*/
 
 func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 	// Assumes rumor is not nil, handles RumorMessages (chat or route)
@@ -195,7 +199,7 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 		}
 	} else {
 		if isMissing { // Means they are missing a message
-			gp.SendPacket(nil, missingMessage, nil, nil, from) // Send back missing message
+			gp.SendPacket(nil, missingMessage, nil, nil, nil, nil, from) // Send back missing message
 		} else if amMissing { // Means I am missing a message
 			gp.SendStatusMessage(from) // I have missing messages
 		}
@@ -207,21 +211,40 @@ func (gp *Gossiper) HandlePrivateMessage(from *net.UDPAddr, pm *PrivateMessage) 
 		fmt.Printf("PRIVATE origin %v hop-limit %v contents %v\n", pm.Origin, pm.HopLimit, pm.Text)
 		gp.PrivateMessages = append(gp.PrivateMessages, pm)
 		return
-	}
-	if pm.HopLimit > 0 {
-		nextHop, ok := gp.Routing.GetNextHop(pm.Destination)
-		if ok {
+	} else if pm.HopLimit > 0 {
+		if nextHop, ok := gp.Routing.GetNextHop(pm.Destination); ok {
 			pm.HopLimit -= 1
-			gp.SendPacket(nil, nil, nil, pm, nextHop)
+			gp.SendPacket(nil, nil, nil, pm, nil, nil, nextHop)
 		}
 	}
+}
 
+func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
+	if dr.Destination == gp.Name {
+		log.Printf("Data request from %v\n", dr.Origin)
+	} else if dr.HopLimit > 0 {
+		if nextHop, ok := gp.Routing.GetNextHop(dr.Destination); ok {
+			dr.HopLimit -= 1
+			gp.SendPacket(nil, nil, nil, nil, dr, nil, nextHop)
+		}
+	}
+}
+
+func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
+	if dr.Destination == gp.Name {
+		log.Printf("Data reply from %v\n", dr.Origin)
+	} else if dr.HopLimit > 0 {
+		if nextHop, ok := gp.Routing.GetNextHop(dr.Destination); ok {
+			dr.HopLimit -= 1
+			gp.SendPacket(nil, nil, nil, nil, nil, dr, nextHop)
+		}
+	}
 }
 
 /*-------------------- Methods used for transferring messages and broadcasting ------------------------------*/
 
-func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, private *PrivateMessage, to *net.UDPAddr) {
-	gossipPacket, err := protobuf.Encode(&GossipPacket{Simple: simple, Rumor: rumor, Status: status, Private: private})
+func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, private *PrivateMessage, request *DataRequest, reply *DataReply, to *net.UDPAddr) {
+	gossipPacket, err := protobuf.Encode(&GossipPacket{Simple: simple, Rumor: rumor, Status: status, Private: private, DataRequest: request, DataReply: reply})
 	if err != nil {
 		log.Printf("Error encoding gossipPacket for %v\n", to.String())
 		return
@@ -237,7 +260,7 @@ func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, statu
 func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 	// Creates the vector clock for the given peer
 	statusPacket := gp.Rumors.GetStatusPacket()
-	gp.SendPacket(nil, nil, statusPacket, nil, to)
+	gp.SendPacket(nil, nil, statusPacket, nil, nil, nil, to)
 }
 
 func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) {
@@ -245,7 +268,7 @@ func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) 
 	nodeAddresses := gp.Nodes.GetAll()
 	for nodeAddr, node := range nodeAddresses {
 		if nodeAddr != except.String() {
-			gp.SendPacket(packet, nil, nil, nil, node.udpAddr)
+			gp.SendPacket(packet, nil, nil, nil, nil, nil, node.udpAddr)
 		}
 	}
 }
@@ -267,7 +290,7 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 	}
 	except[randomNode.String()] = struct{}{} // Add node we send to, to the except list
 
-	gp.SendPacket(nil, message, nil, nil, randomNode) // Send rumor
+	gp.SendPacket(nil, message, nil, nil, nil, nil, randomNode) // Send rumor
 	if withTimeout {
 		callback := func() {
 			fmt.Printf("Timeout on message %v sent to %v\n", message, randomNode)

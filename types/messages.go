@@ -27,13 +27,6 @@ type PrivateMessage struct {
 	HopLimit    uint32
 }
 
-type GossipPacket struct {
-	Simple  *SimpleMessage
-	Rumor   *RumorMessage
-	Status  *StatusPacket
-	Private *PrivateMessage
-}
-
 type RumorMessage struct { // No need to add RelayPeerAddr as it is deduced from sending node
 	Origin string
 	ID     uint32
@@ -47,6 +40,30 @@ type PeerStatus struct {
 
 type StatusPacket struct {
 	Want []PeerStatus
+}
+
+type DataRequest struct {
+	Origin      string
+	Destination string
+	HopLimit    uint32
+	HashValue   []byte
+}
+
+type DataReply struct {
+	Origin      string
+	Destination string
+	HopLimit    uint32
+	HashValue   []byte
+	Data        []byte
+}
+
+type GossipPacket struct {
+	Simple      *SimpleMessage
+	Rumor       *RumorMessage
+	Status      *StatusPacket
+	Private     *PrivateMessage
+	DataRequest *DataRequest
+	DataReply   *DataReply
 }
 
 func (sp *StatusPacket) PrintStatusMessage(sender *net.UDPAddr) {
