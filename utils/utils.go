@@ -1,8 +1,8 @@
 package utils
 
 import (
-	"crypto/sha256"
-	"io"
+	"encoding/hex"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -80,41 +80,13 @@ func CheckAndOpen(dir string, filename string) (bool, *os.File, int64) {
 	return !info.IsDir(), f, info.Size()
 }
 
-func SaveMetaFile(dir, filename string, contents []byte) (bool, string, []byte) {
-	cwd, err := os.Getwd() // Get WD
+func ToHex(hash []byte) string {
+	return fmt.Sprintf("%x", hash)
+}
+func ToBytes(hash string) []byte {
+	b, err := hex.DecodeString(hash)
 	if err != nil {
-		return false, "", nil
+		return nil
 	}
-
-	extension := filepath.Ext(filename)                   // Get length of extension
-	filename = filename[0 : len(filename)-len(extension)] // Remove extension
-	filename += ".meta"
-
-	filePath := filepath.Join(cwd, dir, filename) // Get filePath
-
-	f, err := os.Create(filePath) // Create the file
-
-	if err != nil {
-		return false, "", nil
-	}
-	defer f.Close()
-
-	_, err = f.Write(contents)
-	if err != nil {
-		return false, "", nil
-	}
-
-	f, err = os.Open(filePath) // Re-open the file
-	if err != nil {
-		return false, "", nil
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return false, "", nil
-	}
-
-	metaHash := h.Sum(nil)
-	return true, filename, metaHash
+	return b
 }
