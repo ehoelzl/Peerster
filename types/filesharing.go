@@ -2,8 +2,8 @@ package types
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"github.com/ehoelzl/Peerster/utils"
-	"golang.org/x/tools/go/ssa/interp/testdata/src/fmt"
 	"math"
 	"sync"
 )
@@ -48,7 +48,7 @@ func (fs *Files) IndexNewFile(filename string) bool {
 
 	metaSaved, metaFile, metaHash := utils.SaveMetaFile(sharedFilesDir, filename, meta)
 
-	hashString := fmt.Sprint("%x", metaHash)
+	hashString := fmt.Sprintf("%x", metaHash)
 	if !metaSaved {
 		return false
 	}
