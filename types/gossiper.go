@@ -12,16 +12,17 @@ import (
 var hopLimit uint32 = 10
 
 type Gossiper struct {
-	ClientAddress *net.UDPAddr
-	ClientConn    *net.UDPConn
-	GossipAddress *net.UDPAddr
-	GossipConn    *net.UDPConn
-	IsSimple      bool
-	Name          string
-	Nodes         *Nodes
-	Rumors        *Rumors // From name to peer
-	Routing       *RoutingTable
-	Files         *Files
+	ClientAddress   *net.UDPAddr
+	ClientConn      *net.UDPConn
+	GossipAddress   *net.UDPAddr
+	GossipConn      *net.UDPConn
+	IsSimple        bool
+	Name            string
+	Nodes           *Nodes
+	Rumors          *Rumors // From name to peer
+	Routing         *RoutingTable
+	Files           *Files
+	PrivateMessages []*PrivateMessage
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int) (*Gossiper, bool) {
@@ -204,6 +205,7 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 func (gp *Gossiper) HandlePrivateMessage(from *net.UDPAddr, pm *PrivateMessage) {
 	if pm.Destination == gp.Name {
 		fmt.Printf("PRIVATE origin %v hop-limit %v contents %v\n", pm.Origin, pm.HopLimit, pm.Text)
+		gp.PrivateMessages = append(gp.PrivateMessages, pm)
 		return
 	}
 	if pm.HopLimit > 0 {

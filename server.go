@@ -42,6 +42,26 @@ func (s *Server) GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) GetPrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	messages := s.Gossiper.PrivateMessages
+	response := make(map[string][]string) // Prepare map for response
+
+	for _, m := range messages {
+		if elem, ok := response[m.Origin]; ok {
+			response[m.Origin] = append(elem, m.Text)
+		} else {
+			response[m.Origin] = []string{m.Text}
+		}
+	}
+	jsonString, _ := json.Marshal(response)
+	_, err := io.WriteString(w, string(jsonString))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func (s *Server) GetNodeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -144,6 +164,7 @@ func NewServer(addr string, gossiper *Gossiper) {
 	r.HandleFunc("/node", server.PostNodeHandler).Methods("POST")
 	r.HandleFunc("/id", server.GetIdHandler).Methods("GET")
 	r.HandleFunc("/origins", server.GetOriginHandler).Methods("GET")
+	r.HandleFunc("/private", server.GetPrivateMessageHandler).Methods("GET")
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./frontend/")))
 	handler := cors.Default().Handler(r)
 	srv := &http.Server{

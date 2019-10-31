@@ -91,8 +91,8 @@ class NodesBox extends Component {
              <div style="float: left" class="is-special"> ${this.state.nodes.length}</div>
         </div>
         <hr style="border-top: 2px"/>
-        <div class="peers" style="margin-bottom: 20px">
-            ${this.state.nodes.map(node => {
+        <div class="peers" style="margin-bottom: 20px; max-height: 75px; overflow-y: scroll">
+            ${this.state.nodes.sort().map(node => {
                return (html`<div>${node}</div>`);
               })}
             
@@ -115,11 +115,14 @@ class NodesBox extends Component {
 }
 
 class MessagesBox extends Component {
-  state = {messages : {}}
+  state = {messages : {}, privateMessages: {}}
 
   refreshMessages() {
     $.getJSON(uiAddress + '/message', function(data) {
       this.setState(({messages}) => ({messages: data}))
+    }.bind(this))
+    $.getJSON(uiAddress + '/private', function(data) {
+      this.setState(({privateMessages}) => ({privateMessages: data}))
     }.bind(this))
   }
 
@@ -139,8 +142,6 @@ class MessagesBox extends Component {
           items.push(html`<div class="message">
                               <div style="width: 50%;font-family: monospace; float: left; height: 100%">${node}</div>
                               <div style="width: 50%; float: right">${message}</div>
-  
-  
                           </div>`)
         }
         items.push(html`<hr style="border-top: 1px dotted"/>`)
@@ -148,9 +149,27 @@ class MessagesBox extends Component {
     return items
   }
 
+  printPrivateMessages(){
+    var items = [];
+    for (var node in this.state.privateMessages){
+      var messages = this.state.privateMessages[node]
+      var numMessages = messages.length
+      for (let _id = 0; _id < numMessages; _id++){
+        var message = messages[_id]
+        items.push(html`<div class="message">
+                              <div style="width: 50%;font-family: monospace; float: left; height: 100%">${node}</div>
+                              <div style="width: 50%; float: right">${message}</div>
+                          </div>`)
+      }
+      items.push(html`<hr style="border-top: 1px dotted"/>`)
+    }
+    return items
+  }
+
   render () {
     return html`
         <section>
+          <div style="padding-bottom: 20px">
             <div style="font-weight: bold; margin-bottom: 20px">Rumor Messages</div>
             <div style="margin-bottom: 15px; border-bottom: 2px dotted">
                 <div style="width: 220px;float: left; font-family: monospace">From</div>
@@ -159,6 +178,19 @@ class MessagesBox extends Component {
             <div class="messages">
                 ${this.printNodeMessages()}        
             </div>
+          </div>
+           <hr/>
+           <div style="height: 50%">
+            <div style="font-weight: bold; margin-bottom: 20px">Private Messages</div>
+            <div style="margin-bottom: 15px; border-bottom: 2px dotted">
+                <div style="width: 220px;float: left; font-family: monospace">From</div>
+                <div>Message</div>
+            </div>
+            <div class="messages">
+                ${this.printPrivateMessages()}        
+            </div>
+            
+           </div>
         </section>
     `
   }
@@ -268,8 +300,7 @@ class PrivateMessages extends Component {
             <div style="width: 50%; float: right"><button onClick=${() => {
               this.setState(({destination}) => ({destination: peer}));
               this.togglePopUp()
-      
-              }}>Send Private Message</button></div>
+              }} style="font-size: 12px">Send Private Message</button></div>
             </div>
     `
   }
@@ -293,7 +324,7 @@ class PrivateMessages extends Component {
                <div style="float: left" class="is-special"> ${this.state.peers.length}</div>
         </div>
         <hr style="border-top: 2px"/>
-        <div class="peers" style="margin-bottom: 20px">
+        <div class="peers" style="margin-bottom: 20px; overflow-y: scroll; max-height: 100px">
             ${this.state.peers.map(p => this.renderPeerButton(p))}
         </div>
       </section>
@@ -301,6 +332,8 @@ class PrivateMessages extends Component {
 
   }
 }
+
+
 class App extends Component {
   render () {
     return html`

@@ -34,7 +34,6 @@ body {
   grid-column: 3 / span 2;
   grid-row: 1 / span 2;
   width: 500px;
-  max-height: 450px;
 }
 .c {
   grid-column: 1 ;
@@ -46,7 +45,7 @@ body {
 }
 
 .e {
-  grid-column: 1;
+  grid-column: 2;
   grid-row: 3;
 }
 
@@ -85,7 +84,7 @@ hr {
 }
 .messages{
   font-size: 15px;
-  max-height: 400px;
+  height: 120px;
   overflow-y: scroll;
   text-align: left;
 }
