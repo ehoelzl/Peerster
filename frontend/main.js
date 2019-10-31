@@ -99,7 +99,7 @@ class NodesBox extends Component {
         </div>
         <hr/>
         <div>
-            <div style="font-weight: bold; margin-bottom: 20px">Add a new peer</div>
+            <div style="font-weight: bold; margin-bottom: 20px">Add a new node</div>
             <form style="width: 300px" onSubmit=${this.handleSubmit.bind(this)}>
                 <label style="font-weight: normal">
                     Address:
