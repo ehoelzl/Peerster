@@ -90,7 +90,7 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 		}
 	} else if message.File != nil {
 		if message.Request != nil && message.Destination != nil { // Request message
-			gp.HandleClientFileRequest(message)
+			go gp.HandleClientFileRequest(message)
 		} else { // file indexing
 			gp.Files.IndexNewFile(*message.File)
 		}
@@ -142,7 +142,26 @@ func (gp *Gossiper) HandleClientRumorMessage(message *Message) {
 }
 
 func (gp *Gossiper) HandleClientFileRequest(message *Message) {
+	if gp.Files.FileExists(*message.Request) { // File already indexed
+		return
+	}
+	nextHop, ok := gp.Routing.GetNextHop(*message.Destination) // Check if nextHop available
+	if !ok {
+		return
+	}
+	gp.Files.AddEmptyFile(*message.File, *message.Request) // Create an empty file
+	metaRequest := &DataRequest{
+		Origin:      gp.Name,
+		Destination: *message.Destination,
+		HopLimit:    hopLimit -1,
+		HashValue:   *message.Request,
+	}
 
+	for !gp.Files.HasMetaFile(*message.Request) && ok {
+		gp.SendPacket(nil, nil, nil, nil, metaRequest, nil, nextHop)
+		time.Sleep(5 * time.Second) // Sleep 5 seconds
+		nextHop, ok = gp.Routing.GetNextHop(*message.Destination)
+	}
 }
 
 /*---------------------------------- Gossip message handlers  ---------------------------------------------*/
@@ -247,7 +266,7 @@ func (gp *Gossiper) HandlePrivateMessage(from *net.UDPAddr, pm *PrivateMessage) 
 func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 	/*Handles a DataRequest (forwards or processes)*/
 	if dr.Destination == gp.Name {
-		log.Printf("Data request from %v\n", dr.Origin)
+		log.Printf("Data request from %v for %x\n", dr.Origin, dr.HashValue)
 	} else if dr.HopLimit > 0 {
 		if nextHop, ok := gp.Routing.GetNextHop(dr.Destination); ok {
 			dr.HopLimit -= 1

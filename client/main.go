@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"github.com/dedis/protobuf"
 	. "github.com/ehoelzl/Peerster/types"
 	"github.com/ehoelzl/Peerster/utils"
+	"log"
 	"net"
 	"os"
 )
@@ -53,8 +53,9 @@ func main() {
 	if len(*request) == 0 {
 		requestBytes = nil
 	} else {
-		requestBytes, err := hex.DecodeString(*request)
-		if err != nil || len(requestBytes) < 32 {
+		requestBytes = utils.ToBytes(*request)
+		if requestBytes == nil || len(requestBytes) < 32 {
+			log.Println(requestBytes)
 			fmt.Println("ERROR (Unable to decode hex hash)")
 		}
 	}
