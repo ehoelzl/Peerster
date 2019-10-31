@@ -92,12 +92,13 @@ func SaveMetaFile(dir, filename string, contents []byte) (bool, string, []byte) 
 
 	filePath := filepath.Join(cwd, dir, filename) // Get filePath
 
-	f, err := os.Create(filePath)
+	f, err := os.Create(filePath) // Create the file
 
 	if err != nil {
 		return false, "", nil
 	}
 	defer f.Close()
+
 	_, err = f.Write(contents)
 	if err != nil {
 		return false, "", nil

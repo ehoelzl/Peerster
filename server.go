@@ -108,7 +108,6 @@ func (s *Server) GetIdHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) PostMessageHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
 	decoder := json.NewDecoder(r.Body)
 
 	var mess Message
@@ -116,15 +115,28 @@ func (s *Server) PostMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Println("Could not decode message from UI")
-		return
-	}
-	packetBytes, err := protobuf.Encode(&mess)
-	if err != nil {
-		log.Println("Could not encode message from UI")
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	go s.Gossiper.HandleClientMessage(packetBytes)
+	if mess.File == nil { // Private or rumor message
+		w.WriteHeader(http.StatusOK)
+		packetBytes, err := protobuf.Encode(&mess)
+		if err != nil {
+			log.Println("Could not encode message from UI")
+			return
+		}
+
+		go s.Gossiper.HandleClientMessage(packetBytes)
+	} else { // File indexing
+		indexed := s.Gossiper.Files.IndexNewFile(*mess.File)
+		if indexed {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}
+
 }
 
 func (s *Server) PostNodeHandler(w http.ResponseWriter, r *http.Request) {
