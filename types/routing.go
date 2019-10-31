@@ -20,9 +20,7 @@ func NewRoutingTable() *RoutingTable {
 func (rt *RoutingTable) UpdateRoute(origin string, address *net.UDPAddr, isRouteRumor bool) {
 	rt.Lock()
 	defer rt.Unlock()
-	if elem, ok := rt.table[origin]; ok && elem.String() == address.String() { // Check if need to update/print
-		return
-	}
+
 	rt.table[origin] = address
 	if !isRouteRumor {
 		fmt.Printf("DSDV %v %v\n", origin, address.String())

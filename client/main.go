@@ -19,8 +19,11 @@ func main() {
 		log.Println("Cannot send empty message")
 		return
 	}
+	if len(*dest) == 0 {
+		dest = nil
+	}
 
-	message := Message{Text: *msg, Destination: *dest}
+	message := Message{Text: *msg, Destination: dest}
 	packetBytes, err := protobuf.Encode(&message)
 	utils.CheckError(err, "Error encoding message")
 

@@ -79,7 +79,7 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 		log.Println("Could not decode packet from client")
 		return
 	}
-	if len(message.Destination) > 0 {
+	if message.Destination != nil {
 		gp.HandleClientPrivateMessage(message)
 		return
 	}
@@ -102,9 +102,9 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 }
 
 func (gp *Gossiper) HandleClientPrivateMessage(message *Message) {
-	fmt.Printf("CLIENT MESSAGE %v dest %v\n", message.Text, message.Destination)
+	fmt.Printf("CLIENT MESSAGE %v dest %v\n", message.Text, *message.Destination)
 
-	if message.Destination == gp.Name { // In case someone wants to play it smart
+	if *message.Destination == gp.Name { // In case someone wants to play it smart
 		fmt.Printf("PRIVATE origin %v hop-limit %v contents %v\n", gp.Name, 10, message.Text)
 		return
 	}
@@ -112,10 +112,10 @@ func (gp *Gossiper) HandleClientPrivateMessage(message *Message) {
 		Origin:      gp.Name,
 		ID:          0,
 		Text:        message.Text,
-		Destination: message.Destination,
+		Destination: *message.Destination,
 		HopLimit:    hopLimit - 1,
 	}
-	nextHop, ok := gp.Routing.GetNextHop(message.Destination)
+	nextHop, ok := gp.Routing.GetNextHop(*message.Destination)
 	if ok {
 		gp.SendPacket(nil, nil, nil, pm, nextHop)
 	}
@@ -166,7 +166,9 @@ func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 	go gp.SendStatusMessage(from)                 // Send back ack
 
 	if isNewRumor { // If message was not seen before, continue rumor mongering to other nodes
-		gp.Routing.UpdateRoute(rumor.Origin, from, len(rumor.Text) == 0) // Update routing table
+		if rumor.Origin != gp.Name {
+			gp.Routing.UpdateRoute(rumor.Origin, from, len(rumor.Text) == 0) // Update routing table
+		}
 
 		except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
 		gp.StartRumormongering(rumor, except, false, true)
@@ -185,7 +187,7 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 		if isAck {
 			if flip := utils.CoinFlip(); flip {
 				except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
-				gp.StartRumormongering(lastRumor, except, true, false)   // Start mongering, but no timeout
+				gp.StartRumormongering(lastRumor, except, true, false)   // TODO: check if need to timeout on coinflips
 			}
 		}
 	} else {
@@ -276,11 +278,8 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 /*----------------------- Methods for Routing -----------------------*/
 
 func (gp *Gossiper) SendRouteRumor() {
-	randomNode, ok := gp.Nodes.GetRandom(nil)
-	if ok {
-		routeRumor := gp.Rumors.CreateNewRumor(gp.Name, "")
-		gp.Rumors.AddRumorMessage(routeRumor)
-		gp.SendPacket(nil, routeRumor, nil, nil, randomNode)
-
-	}
+	// Creates a route rumor, adds it to the list and sends it to a random node
+	routeRumor := gp.Rumors.CreateNewRumor(gp.Name, "")
+	gp.Rumors.AddRumorMessage(routeRumor)
+	gp.StartRumormongering(routeRumor, nil, false, true)
 }

@@ -8,8 +8,8 @@ import (
 
 type Message struct {
 	Text        string
-	Destination string
-	File        string
+	Destination *string
+	File        *string
 	Request     *[]byte
 }
 
