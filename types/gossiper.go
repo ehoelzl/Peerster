@@ -70,7 +70,10 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 	return gossiper, true
 }
 
+/*---------------------------------- Client (CLI/GUI) message handlers ---------------------------------------------*/
 func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
+	/*Handles any packet sent by the client (type Message)*/
+
 	// Decode the message
 	message := &Message{}
 	err := protobuf.Decode(packetBytes, message)
@@ -78,38 +81,32 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 		log.Println("Could not decode packet from client")
 		return
 	}
-	if message.Destination != nil {
-		gp.HandleClientPrivateMessage(message)
-	} else if message.File != nil { // handles File indexing
-		gp.Files.IndexNewFile(*message.File)
-	} else { // Handling rumor messages send by client
-		fmt.Printf("CLIENT MESSAGE %v\n", message.Text)
 
-		if gp.IsSimple { // Simple case
-			simpleMessage := &SimpleMessage{
-				OriginalName:  gp.Name,
-				RelayPeerAddr: gp.GossipAddress.String(),
-				Contents:      message.Text,
-			}
-			gp.SimpleBroadcast(simpleMessage, nil)
-		} else {
-			rumorMessage := gp.Rumors.CreateNewRumor(gp.Name, message.Text)
-			messageAdded := gp.Rumors.AddRumorMessage(rumorMessage) // Usually, message is always added
-			if messageAdded {                                       //Rumor Only if message was not seen before (i.e. added)
-				gp.StartRumormongering(rumorMessage, nil, false, true)
-			}
+	if len(message.Text) > 0 {
+		if message.Destination != nil { // Private Message
+			gp.HandleClientPrivateMessage(message)
+		} else { // Rumor Message
+			gp.HandleClientRumorMessage(message)
+		}
+	} else if message.File != nil {
+		if message.Request != nil && message.Destination != nil { // Request message
+			gp.HandleClientFileRequest(message)
+		} else { // file indexing
+			gp.Files.IndexNewFile(*message.File)
 		}
 	}
-
 }
 
 func (gp *Gossiper) HandleClientPrivateMessage(message *Message) {
+	/*Handles private messages*/
 	fmt.Printf("CLIENT MESSAGE %v dest %v\n", message.Text, *message.Destination)
 
 	if *message.Destination == gp.Name { // In case someone wants to play it smart
 		fmt.Printf("PRIVATE origin %v hop-limit %v contents %v\n", gp.Name, 10, message.Text)
 		return
 	}
+
+	//Prepare the private message
 	pm := &PrivateMessage{
 		Origin:      gp.Name,
 		ID:          0,
@@ -117,24 +114,50 @@ func (gp *Gossiper) HandleClientPrivateMessage(message *Message) {
 		Destination: *message.Destination,
 		HopLimit:    hopLimit - 1,
 	}
-	nextHop, ok := gp.Routing.GetNextHop(*message.Destination)
+	nextHop, ok := gp.Routing.GetNextHop(*message.Destination) // Check if next hop exists and send
 	if ok {
 		gp.SendPacket(nil, nil, nil, pm, nil, nil, nextHop)
 	}
 
 }
 
+func (gp *Gossiper) HandleClientRumorMessage(message *Message) {
+	/*Handles a rumor message sent by the client*/
+	fmt.Printf("CLIENT MESSAGE %v\n", message.Text)
+
+	if gp.IsSimple { // Simple case
+		simpleMessage := &SimpleMessage{
+			OriginalName:  gp.Name,
+			RelayPeerAddr: gp.GossipAddress.String(),
+			Contents:      message.Text,
+		}
+		gp.SimpleBroadcast(simpleMessage, nil)
+	} else { // Rumor case
+		rumorMessage := gp.Rumors.CreateNewRumor(gp.Name, message.Text) // Create new rumor
+		messageAdded := gp.Rumors.AddRumorMessage(rumorMessage)         // Add it to list
+		if messageAdded {                                               //Rumor Only if message was not seen before (i.e. added)
+			gp.StartRumormongering(rumorMessage, nil, false, true)
+		}
+	}
+}
+
+func (gp *Gossiper) HandleClientFileRequest(message *Message) {
+
+}
+
+/*---------------------------------- Gossip message handlers  ---------------------------------------------*/
+
 func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
+	/*Handles any GossipPacket received by other nodes*/
 	packet := &GossipPacket{}
 	err := protobuf.Decode(packetBytes, packet)
 	if err != nil {
-		log.Println(err)
 		log.Printf("Could not decode GossipPacket from %v\n", from.String())
 		return
 	}
 
 	gp.Nodes.Add(from) // Add node to list if not in
-	if gp.IsSimple {
+	if gp.IsSimple {   // Simple case, rebroadcast
 		if packet.Simple == nil {
 			log.Printf("Empty simple message from %v\n", from.String())
 			return
@@ -144,7 +167,8 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 
 		packet.Simple.RelayPeerAddr = gp.GossipAddress.String()
 		gp.SimpleBroadcast(packet.Simple, from)
-	} else {
+	} else { // Rumor/Private/File
+
 		if rumor := packet.Rumor; rumor != nil { // RumorMessage
 			gp.HandleRumorMessage(from, rumor)
 		} else if status := packet.Status; status != nil { //StatusPacket
@@ -162,10 +186,8 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 	}
 }
 
-/*-------------------- Methods used for handling gossip packets  ------------------------------*/
-
 func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
-	// Assumes rumor is not nil, handles RumorMessages (chat or route)
+	/*Handles RumorMessage received by other nodes (route rumor or chat rumor)*/
 
 	fmt.Printf("RUMOR origin %v from %v ID %v contents %v\n", rumor.Origin, from.String(), rumor.ID, rumor.Text)
 	gp.Nodes.Print()
@@ -173,25 +195,27 @@ func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 	go gp.SendStatusMessage(from)                  // Send back ack
 
 	if isNewRumor { // If message was not seen before, continue rumor mongering to other nodes
-		if rumor.Origin != gp.Name {
+		if rumor.Origin != gp.Name { // Double check
 			gp.Routing.UpdateRoute(rumor.Origin, from, len(rumor.Text) == 0) // Update routing table
 		}
 
 		except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
-		gp.StartRumormongering(rumor, except, false, true)
+		gp.StartRumormongering(rumor, except, false, true)       // Start RumorMongering
 	}
 }
 
 func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) {
-	status.PrintStatusMessage(from)
+	/*Handles StatusPacket sent by other nodes (Checks if in sync, or if any of the two has missing rumors)*/
+
+	status.PrintStatusMessage(from) // Print the received status and known nodes
 	gp.Nodes.Print()
-	lastRumor, isAck := gp.Nodes.CheckTimeouts(from)
-	missingMessage, isMissing, amMissing := gp.Rumors.CompareStatus(status)
+	lastRumor, isAck := gp.Nodes.CheckTimeouts(from)                        // Check if any timer for the sending node
+	missingMessage, isMissing, amMissing := gp.Rumors.CompareStatus(status) // Compare the statuses
 	inSync := !(isMissing || amMissing)
 
 	if inSync {
 		fmt.Printf("IN SYNC WITH %v\n", from.String())
-		if isAck {
+		if isAck { // Check if the StatusPacket is an ACK or if it's just due to AntiEntropy
 			if flip := utils.CoinFlip(); flip {
 				except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
 				gp.StartRumormongering(lastRumor, except, true, false)   // TODO: check if need to timeout on coinflips
@@ -207,11 +231,12 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 }
 
 func (gp *Gossiper) HandlePrivateMessage(from *net.UDPAddr, pm *PrivateMessage) {
-	if pm.Destination == gp.Name {
+	/*Handles any PrivateMessage sent by another node */
+
+	if pm.Destination == gp.Name { //Message has reached destination
 		fmt.Printf("PRIVATE origin %v hop-limit %v contents %v\n", pm.Origin, pm.HopLimit, pm.Text)
 		gp.PrivateMessages = append(gp.PrivateMessages, pm)
-		return
-	} else if pm.HopLimit > 0 {
+	} else if pm.HopLimit > 0 { // Otherwise check if HopLimit not exceeded
 		if nextHop, ok := gp.Routing.GetNextHop(pm.Destination); ok {
 			pm.HopLimit -= 1
 			gp.SendPacket(nil, nil, nil, pm, nil, nil, nextHop)
@@ -220,6 +245,7 @@ func (gp *Gossiper) HandlePrivateMessage(from *net.UDPAddr, pm *PrivateMessage) 
 }
 
 func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
+	/*Handles a DataRequest (forwards or processes)*/
 	if dr.Destination == gp.Name {
 		log.Printf("Data request from %v\n", dr.Origin)
 	} else if dr.HopLimit > 0 {
@@ -231,6 +257,7 @@ func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 }
 
 func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
+	/*Handles a DataReply (forwards or processes)*/
 	if dr.Destination == gp.Name {
 		log.Printf("Data reply from %v\n", dr.Origin)
 	} else if dr.HopLimit > 0 {
@@ -244,6 +271,7 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 /*-------------------- Methods used for transferring messages and broadcasting ------------------------------*/
 
 func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, private *PrivateMessage, request *DataRequest, reply *DataReply, to *net.UDPAddr) {
+	/*Constructs and sends a GossipPacket composed of the given arguments*/
 	gossipPacket, err := protobuf.Encode(&GossipPacket{Simple: simple, Rumor: rumor, Status: status, Private: private, DataRequest: request, DataReply: reply})
 	if err != nil {
 		log.Printf("Error encoding gossipPacket for %v\n", to.String())
@@ -258,13 +286,13 @@ func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, statu
 }
 
 func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
-	// Creates the vector clock for the given peer
+	/*Sends the current status to the given node*/
 	statusPacket := gp.Rumors.GetStatusPacket()
 	gp.SendPacket(nil, nil, statusPacket, nil, nil, nil, to)
 }
 
 func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) {
-	// Double functionality: Broadcasts to all peers if except == nil, or to all except the given one
+	/*Broadcasts the SimpleMessage to all known nodes*/
 	nodeAddresses := gp.Nodes.GetAll()
 	for nodeAddr, node := range nodeAddresses {
 		if nodeAddr != except.String() {
@@ -274,11 +302,12 @@ func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) 
 }
 
 func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string]struct{}, coinFlip bool, withTimeout bool) {
-	// Picks random receiver and Mongers the message
-	randomNode, ok := gp.Nodes.GetRandom(except)
-	if !ok {
+	/*Starts the RumorMongering process with the given message*/
+	randomNode, ok := gp.Nodes.GetRandom(except) // Pick random Node
+	if !ok {                                     // Check if could retrieve node
 		return
 	}
+
 	if coinFlip {
 		fmt.Printf("FLIPPED COIN sending rumor to %v\n", randomNode.String())
 	} else {
@@ -291,7 +320,7 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 	except[randomNode.String()] = struct{}{} // Add node we send to, to the except list
 
 	gp.SendPacket(nil, message, nil, nil, nil, nil, randomNode) // Send rumor
-	if withTimeout {
+	if withTimeout {                                            // Check if we need to add a timer
 		callback := func() {
 			fmt.Printf("Timeout on message %v sent to %v\n", message, randomNode)
 			go gp.StartRumormongering(message, except, false, true) // Monger with other node
@@ -303,10 +332,8 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 }
 
 func (gp *Gossiper) SendRouteRumor() {
-	// Creates a route rumor, adds it to the list and sends it to a random node
+	/*Creates a route rumor and sends it to a random Peer*/
 	routeRumor := gp.Rumors.CreateNewRumor(gp.Name, "")
 	gp.Rumors.AddRumorMessage(routeRumor)
 	gp.StartRumormongering(routeRumor, nil, false, true)
 }
-
-/*----------------------- Methods for Routing -----------------------*/

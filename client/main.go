@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/hex"
 	"flag"
+	"fmt"
 	"github.com/dedis/protobuf"
 	. "github.com/ehoelzl/Peerster/types"
 	"github.com/ehoelzl/Peerster/utils"
-	"log"
 	"net"
+	"os"
 )
 
 func main() {
@@ -14,21 +16,51 @@ func main() {
 	dest := flag.String("dest", "", "destination for the private message; can be omitted")
 	msg := flag.String("msg", "", "message to be sent; if the -dest flag is present, this is a private message, otherwise it's a rumor message")
 	file := flag.String("file", "", "file to be indexed by the gossiper")
-
+	request := flag.String("request", "", "request a chunk or metafile of this hash")
 	flag.Parse()
 
-	if len(*msg) == 0 && len(*file) == 0{
-		log.Println("Cannot send empty message")
+	// Must specify UIPort
+	if len(*uiPort) == 0 {
+		fmt.Println("ERROR (Please specify UIPort)")
+		os.Exit(1)
 	}
+
+	if len(*msg) > 0 { // Either rumor message or private message
+		if len(*file) > 0 || len(*request) > 0 {
+			fmt.Println("ERROR (Bad argument combination)")
+			os.Exit(1)
+		}
+	} else { // Either file indexing or request
+		if len(*file) == 0 {
+			fmt.Println("ERROR (Bad argument combination)")
+			os.Exit(1)
+		}
+		if (len(*dest) > 0 && len(*request) == 0) || (len(*dest) == 0 && len(*request) > 0) { // Checks if request arguments are okay
+			fmt.Println("ERROR (Bad argument combination)")
+			os.Exit(1)
+		}
+	}
+
 	if len(*dest) == 0 {
 		dest = nil
 	}
-
 	if len(*file) == 0 {
 		file = nil
 	}
 
-	message := Message{Text: *msg, Destination: dest, File: file}
+	var requestBytes []byte
+
+	if len(*request) == 0 {
+		requestBytes = nil
+	} else {
+		requestBytes, err := hex.DecodeString(*request)
+		if err != nil || len(requestBytes) < 32 {
+			fmt.Println("ERROR (Unable to decode hex hash)")
+		}
+	}
+
+	message := Message{Text: *msg, Destination: dest, File: file, Request: &requestBytes}
+
 	packetBytes, err := protobuf.Encode(&message)
 
 	utils.CheckError(err, "Error encoding message")
