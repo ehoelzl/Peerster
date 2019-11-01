@@ -26,16 +26,22 @@ func CoinFlip() bool {
 	return rand.Int()%2 == 0
 }
 
-func NewTicker(callback func(), seconds time.Duration) {
-	go func() {
-		ticker := time.NewTicker(seconds * time.Second)
+func NewTicker(callback func(), seconds time.Duration) chan bool {
+	stop := make(chan bool)
+	ticker := time.NewTicker(seconds * time.Second)
+
+	go func(tick *time.Ticker, stopChan chan bool) {
 		for {
 			select {
+			case <-stopChan:
+				ticker.Stop()
+				return
 			case <-ticker.C:
 				callback()
 			}
 		}
-	}()
+	}(ticker, stop)
+	return stop
 }
 
 func CheckAndOpen(dir string, filename string) (bool, *os.File, int64) {
