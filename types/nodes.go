@@ -2,7 +2,6 @@ package types
 
 import (
 	"fmt"
-	"github.com/ehoelzl/Peerster/utils"
 	"log"
 	"math/rand"
 	"net"
@@ -11,18 +10,21 @@ import (
 	"time"
 )
 
+
 type Node struct {
-	Ticker   *time.Ticker
-	LastSent *RumorMessage
+	ticker   chan bool
+	lastSent *RumorMessage
 	udpAddr  *net.UDPAddr
 }
+
+// Struct to keep track of known nodes (i.e. IP address)
 type Nodes struct {
 	nodes map[string]*Node
 	sync.RWMutex
 }
 
-func NewNodes(addresses string) *Nodes {
-	// Parses the string addresses passed in CLI and stores them in a Map ofr Node
+func InitNodes(addresses string) *Nodes {
+	/*Initializes the nodes by parsing the addresses*/
 	nodes := make(map[string]*Node)
 	if len(addresses) > 0 {
 		for _, address := range strings.Split(addresses, ",") {
@@ -32,8 +34,8 @@ func NewNodes(addresses string) *Nodes {
 				continue
 			}
 			nodes[peerAddr.String()] = &Node{
-				Ticker:   nil,
-				LastSent: nil,
+				ticker:   nil,
+				lastSent: nil,
 				udpAddr:  peerAddr,
 			}
 		}
@@ -44,25 +46,24 @@ func NewNodes(addresses string) *Nodes {
 }
 
 func (nodes *Nodes) Add(address *net.UDPAddr) {
-	// Checks if the given `*net.UDPAddr` is in `gp.Nodes`, if not, it adds it.
+	/*Adds a new node the the list of nodes*/
 	nodes.Lock()
 	defer nodes.Unlock()
 	if _, ok := nodes.nodes[address.String()]; !ok {
 		nodes.nodes[address.String()] = &Node{
-			Ticker:   nil,
-			LastSent: nil,
+			ticker:   nil,
+			lastSent: nil,
 			udpAddr:  address,
 		}
 	}
 }
 
 func (nodes *Nodes) GetRandom(except map[string]struct{}) (*net.UDPAddr, bool) {
-	// Returns a random address from the list of nodes
+	/*Returns a random node from the list of nodes*/
 	var toKeep []*net.UDPAddr
 	nodes.RLock()
 	for nodeAddr, node := range nodes.nodes {
-		_, noSkip := except[nodeAddr] // If address in `except`
-		if except == nil || !noSkip {
+		if _, noSkip := except[nodeAddr]; except == nil || !noSkip {
 			toKeep = append(toKeep, node.udpAddr) // If the address of the peer is different than `except` we add it to the list
 		}
 	}
@@ -76,6 +77,7 @@ func (nodes *Nodes) GetRandom(except map[string]struct{}) (*net.UDPAddr, bool) {
 }
 
 func (nodes *Nodes) Print() {
+	/*Prints the list of known nodes*/
 	var stringAddresses []string
 	nodes.RLock()
 	defer nodes.RUnlock()
@@ -88,44 +90,47 @@ func (nodes *Nodes) Print() {
 }
 
 func (nodes *Nodes) StartTicker(address *net.UDPAddr, message *RumorMessage, callback func()) {
-	// Registers the given channel for the given message
+	/*Starts a ticker for the given node, and the given message. The callback*/
 	nodes.Lock()
 	defer nodes.Unlock()
 	if node, ok := nodes.nodes[address.String()]; ok {
-		if node.Ticker != nil {
-			node.Ticker.Stop() // Stop the running ticker
+		if node.ticker != nil {
+			node.ticker<-true // If other ticker running, kill it
 		}
-		node.Ticker = utils.NewTimoutTicker(callback, 10)
-		node.LastSent = message
+		node.ticker = NewTimoutTicker(callback, 10) // Create a new ticker
+		node.lastSent = message
 	}
 }
 
 func (nodes *Nodes) DeleteTicker(address *net.UDPAddr) {
+	/*Deletes */
 	nodes.Lock()
 	defer nodes.Unlock()
 	if node, ok := nodes.nodes[address.String()]; ok {
-		node.Ticker.Stop()
-		node.Ticker = nil
-		node.LastSent = nil
+		node.ticker = nil
+		node.lastSent = nil
 	}
 }
 
 func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr) (*RumorMessage, bool) {
+	/*Checks if the given node has a timeout running, and returns the last sent message*/
 	nodes.Lock()
 	defer nodes.Unlock()
 	var lastMessage *RumorMessage
 	if node, ok := nodes.nodes[address.String()]; ok {
-		if node.Ticker == nil {
+		if node.ticker == nil { // If no ticker running, means no message
 			return nil, false
 		}
-		node.Ticker.Stop()
-		node.Ticker = nil
-		lastMessage = node.LastSent
-		node.LastSent = nil
-		if lastMessage == nil { // Should never go in there
+		node.ticker<-true // Kill the ticker
+		node.ticker = nil
+		lastMessage = node.lastSent
+		node.lastSent = nil
+
+		if lastMessage == nil { // Should never go in there TODO: remove
 			log.Println("Got non nil ticker with nil message")
 			return nil, false
 		}
+
 		return lastMessage, true
 
 	}
@@ -133,8 +138,28 @@ func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr) (*RumorMessage, bool) {
 }
 
 func (nodes *Nodes) GetAll() map[string]*Node {
-	// Function only used by server
+	/*Returns the map of all nodes*/
 	nodes.RLock()
 	defer nodes.RUnlock()
 	return nodes.nodes
+}
+
+func NewTimoutTicker(callback func(), seconds time.Duration) chan bool {
+	/*Creates a ticker that ticks only once and calls the callback function*/
+	ticker := time.NewTicker(seconds * time.Second)
+	stop := make(chan bool)
+	go func(tick *time.Ticker, stopChan chan bool) {
+		for {
+			select {
+			case <-stopChan:
+				tick.Stop()
+				return
+			case <-tick.C:
+				tick.Stop()
+				callback()
+				return
+			}
+		}
+	}(ticker, stop)
+	return stop
 }

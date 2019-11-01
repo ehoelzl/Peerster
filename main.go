@@ -23,7 +23,7 @@ func StartClientListener(gp *Gossiper) {
 func StartGossipListener(gp *Gossiper) {
 	// Gossip listener
 	for {
-		// Read packet from other gossipers (always RumorMessage)
+		// Read packet from other gossipers (always GossipPacket)
 		packetBytes := make([]byte, 1024*8)
 		n, udpAddr, err := gp.GossipConn.ReadFromUDP(packetBytes)
 		if err != nil {

@@ -26,37 +26,16 @@ func CoinFlip() bool {
 	return rand.Int()%2 == 0
 }
 
-func NewTicker(callback func(), seconds time.Duration) chan bool {
-	stop := make(chan bool)
+func NewTicker(callback func(), seconds time.Duration) {
 	go func() {
 		ticker := time.NewTicker(seconds * time.Second)
 		for {
 			select {
-			case <-stop:
-				ticker.Stop()
-				return
 			case <-ticker.C:
 				callback()
 			}
 		}
 	}()
-	return stop
-}
-
-func NewTimoutTicker(callback func(), seconds time.Duration) *time.Ticker {
-	// Creates a timeout ticker that ticks only once, and returns the ticker
-	ticker := time.NewTicker(seconds * time.Second)
-	go func(tick *time.Ticker) {
-		for {
-			select {
-			case <-tick.C:
-				//tick.Stop()
-				callback()
-				return
-			}
-		}
-	}(ticker)
-	return ticker
 }
 
 func CheckAndOpen(dir string, filename string) (bool, *os.File, int64) {

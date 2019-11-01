@@ -18,7 +18,7 @@ func newPeerRumors() *PeerRumors {
 }
 
 func (p *PeerRumors) addRumor(rumor *RumorMessage) bool {
-	// Adds the given message to the peer, checks if rumor.ID == p.NextId
+	/*Adds the given rumor to the struct, and increments nextId accordingly (accepts rumors when ID >= nextID*/
 	isNewRumor := false
 	if rumor.ID >= p.nextId { // New message
 		isNewRumor = true
@@ -42,8 +42,8 @@ type Rumors struct {
 	sync.RWMutex
 }
 
-func NewRumorStruct(identifier string) *Rumors {
-	//Creates the GossipPeers structure, and adds the identifier of the current gossiper
+func InitRumorStruct(identifier string) *Rumors {
+	/*Initializes the RumorsStruct given the name of the running gossiper*/
 	initialPeer := newPeerRumors()
 	rumors := make(map[string]*PeerRumors)
 	rumors[identifier] = initialPeer
@@ -54,7 +54,7 @@ func NewRumorStruct(identifier string) *Rumors {
 }
 
 func (r *Rumors) CreateNewRumor(origin string, message string) *RumorMessage {
-	//Creates the next message for the given origin (only to be used when sending chat message or rumor message from calling gossiper)
+	/*Creates the next message for the given origin (only to be used when sending chat message or rumor message from calling gossiper)*/
 	r.RLock()
 	defer r.RUnlock()
 	rumor := &RumorMessage{
@@ -66,6 +66,7 @@ func (r *Rumors) CreateNewRumor(origin string, message string) *RumorMessage {
 }
 
 func (r *Rumors) AddRumorMessage(rumor *RumorMessage) bool {
+	/*Adds the given rumor message to the structure, and returns a bool to check if it was a newRumpor (i.e. it was added)*/
 	r.Lock()
 	defer r.Unlock()
 	isNewRumor := false
@@ -81,6 +82,7 @@ func (r *Rumors) AddRumorMessage(rumor *RumorMessage) bool {
 }
 
 func (r *Rumors) GetStatusPacket() *StatusPacket {
+	/*Constructs and returns the current status*/
 	r.RLock()
 	defer r.RUnlock()
 	var statusMessages []PeerStatus
@@ -91,7 +93,7 @@ func (r *Rumors) GetStatusPacket() *StatusPacket {
 }
 
 func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool, bool) {
-	// Returns (missingMessage, isMissingMessage, amMissingMessage)
+	/*Compares the given status to the struct, and returns the missingMessage, a flag indicating whether they are missing messages, and a flag if I am missing messages*/
 	r.RLock()
 	defer r.RUnlock()
 	statusMap := statusPacket.ToMap()
@@ -125,7 +127,7 @@ func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool,
 }
 
 func (r *Rumors) GetAll() map[string]*PeerRumors {
-	//Function only for server
+	/*Returns all the rumors in the struct*/
 	r.RLock()
 	defer r.RUnlock()
 	return r.rumors
