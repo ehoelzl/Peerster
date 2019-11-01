@@ -6,7 +6,6 @@ import (
 	"github.com/dedis/protobuf"
 	. "github.com/ehoelzl/Peerster/types"
 	"github.com/ehoelzl/Peerster/utils"
-	"log"
 	"net"
 	"os"
 )
@@ -55,7 +54,6 @@ func main() {
 	} else {
 		requestBytes = utils.ToBytes(*request)
 		if requestBytes == nil || len(requestBytes) < 32 {
-			log.Println(requestBytes)
 			fmt.Println("ERROR (Unable to decode hex hash)")
 		}
 	}
