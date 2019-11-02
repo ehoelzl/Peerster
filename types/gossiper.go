@@ -152,8 +152,7 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 	if _, ok := gp.Routing.GetNextHop(*message.Destination); !ok {
 		return
 	}
-	//gp.Files.AddEmptyFile(*message.File, *message.Request) // Create an empty file with (filename, metaHash)
-	gp.StartFileDownload(message)                          // TODO: re-think file downloads
+	gp.StartFileDownload(message) // Sends a request for the metaFile
 }
 
 /*---------------------------------- Gossip message handlers  ---------------------------------------------*/
@@ -255,7 +254,6 @@ func (gp *Gossiper) HandlePrivateMessage(from *net.UDPAddr, pm *PrivateMessage) 
 func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 	/*Handles a DataRequest (forwards or processes)*/
 	if dr.Destination == gp.Name {
-		log.Printf("Data request from %v for %x\n", dr.Origin, dr.HashValue)
 		chunk, ok := gp.Files.GetDataChunk(dr.HashValue) // Get the data chunk
 		reply := &DataReply{
 			Origin:      gp.Name,
@@ -285,9 +283,18 @@ func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 	/*Handles a DataReply (forwards or processes)*/
 	if dr.Destination == gp.Name {
-		log.Printf("Data reply from %v %x\n", dr.Origin, dr.HashValue)
-		gp.Files.ParseDataReply(dr)
-
+		file, nextChunk, hasNext := gp.Files.ParseDataReply(dr)
+		if hasNext {
+			chunkRequest := &DataRequest{
+				Origin:      gp.Name,
+				Destination: dr.Origin,
+				HopLimit:    hopLimit - 1,
+				HashValue:   nextChunk.Hash,
+			}
+			gp.SendDataRequest(file.MetaHash, file.Filename, chunkRequest, dr.Origin, nextChunk.index)
+		} else if file != nil {
+			fmt.Printf("RECONSTRUCTED file %v\n", file.Filename)
+		}
 	} else if dr.HopLimit > 0 {
 		if nextHop, ok := gp.Routing.GetNextHop(dr.Destination); ok {
 			dr.HopLimit -= 1
@@ -366,21 +373,26 @@ func (gp *Gossiper) SendRouteRumor() {
 
 /*-------------------- For File Sharing between gossipers ------------------------------*/
 
-func (gp *Gossiper) SendDataRequest(request *DataRequest, destination string) {
+func (gp *Gossiper) SendDataRequest(fileHash []byte, filename string,  request *DataRequest, destination string, chunkId int) {
 	nextHop, ok := gp.Routing.GetNextHop(destination) // Check if nextHop available
 	if !ok {                                          // Cannot request from node that we don't know the path to
 		return
 	}
+	//First send packet
 	gp.SendPacket(nil, nil, nil, nil, request, nil, nextHop)
+	if utils.ToHex(fileHash) == utils.ToHex(request.HashValue) {
+		fmt.Printf("DOWNLOADING metafile of %v from %v\n", filename, destination)
+	} else {
+		fmt.Printf("DOWNLOADING %v chunk %v from %v\n", filename, chunkId+1, destination)
+	}
+	//Register a request for this hash
+	callback := func() {gp.SendDataRequest(fileHash, filename, request, destination, chunkId)} // Callback for ticker
+	gp.Files.RegisterRequest(request.HashValue, fileHash, filename, callback) // Register a ticker for the given hash
+
 }
 
 func (gp *Gossiper) StartFileDownload(message *Message) {
-	/*
-	1. Request metaFile and start ticker
-	2. When metafile is received, start by requesting chunks
-	3. For each chunk, request and create
-	*/
-	metaHash := *message.Request
+	metaHash := *message.Request // Get the hash of
 	// First request the MetaFile
 	metaRequest := &DataRequest{
 		Origin:      gp.Name,
@@ -388,7 +400,6 @@ func (gp *Gossiper) StartFileDownload(message *Message) {
 		HopLimit:    hopLimit - 1,
 		HashValue:   metaHash,
 	}
-	gp.SendDataRequest(metaRequest, *message.Destination)
-	callback := func() {gp.SendDataRequest(metaRequest, *message.Destination)}
-	gp.Files.RegisterRequest(metaHash, metaHash, *message.File, callback) // Register a ticker for the metaHash
+	gp.SendDataRequest(metaHash, *message.File, metaRequest, *message.Destination, -1)
+
 }

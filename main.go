@@ -10,7 +10,7 @@ func StartClientListener(gp *Gossiper) {
 	// Listener for client
 	for {
 		// First read packet
-		packetBytes := make([]byte, 1024*8)
+		packetBytes := make([]byte, 1024*16)
 		n, _, err := gp.ClientConn.ReadFromUDP(packetBytes)
 		if err != nil {
 			log.Println("Error reading from UDP from client Port")
@@ -24,7 +24,7 @@ func StartGossipListener(gp *Gossiper) {
 	// Gossip listener
 	for {
 		// Read packet from other gossipers (always GossipPacket)
-		packetBytes := make([]byte, 1024*8)
+		packetBytes := make([]byte, 1024*16)
 		n, udpAddr, err := gp.GossipConn.ReadFromUDP(packetBytes)
 		if err != nil {
 			log.Printf("Error reading from UDP from %v\n", udpAddr.String())
