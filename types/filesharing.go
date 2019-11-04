@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/ehoelzl/Peerster/utils"
 	"log"
+	"os"
 	"sync"
 )
 
@@ -19,11 +20,6 @@ type Chunk struct {
 	Hash      []byte
 }
 
-type waitingChunk struct {
-	metaHash string
-	ticker   chan bool
-	filename string
-}
 type File struct {
 	Filename  string
 	Directory string
@@ -34,25 +30,20 @@ type File struct {
 	sync.RWMutex
 }
 
+type waitingChunk struct { // Structure for a requested chunk that has not yet been received
+	metaHash string    //Has of the associated metaFile
+	ticker   chan bool // Channel for running ticker
+	filename string    // Filename
+}
+
 type Files struct {
 	files         map[string]*File
 	waitingChunks map[string]*waitingChunk // From chunk hash to waitingChunk
 	sync.RWMutex
 }
 
-func (f *File) getChunk(index int) (*Chunk, bool) {
-	f.RLock()
-	defer f.RUnlock()
-	for _, chunk := range f.Chunks {
-		if chunk.index == index {
-			return chunk, true
-		}
-	}
-	return nil, false
-}
-
 func (f *File) getChunkData(chunk *Chunk) ([]byte, bool) {
-	/*Returns the data associated to the given chunk*/
+	/*Returns the data associated to the given chunk (Opens the file, reads the chunk and returns it)*/
 	f.Lock()
 	defer f.Unlock()
 
@@ -77,25 +68,32 @@ func (f *File) getChunkData(chunk *Chunk) ([]byte, bool) {
 	if err := file.Close(); err != nil {
 		return nil, false
 	}
+
 	return dataChunk[:n], true
 }
 
 func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
+	/*Adds a given chunk to the file (opens and appends the bytes)*/
 	f.Lock()
 	defer f.Unlock()
 
 	chunkHashString := utils.ToHex(chunkHash)
-	if chunk, ok := f.Chunks[chunkHashString]; ok && !chunk.available {
-		exists, file, _ := utils.CheckAndOpenWrite(f.Directory, f.Filename) // Open the file
-		defer file.Close()
+	if chunk, ok := f.Chunks[chunkHashString]; ok && !chunk.available { // Check that the chunk was not received already
+		exists, file := utils.CheckAndOpenWrite(f.Directory, f.Filename) // Open the file
 		if !exists {
 			return nil, false
 		}
-		if _, err := file.Write(chunkData); err != nil {
+
+		if _, err := file.Write(chunkData); err != nil { // Append the new chunk data
 			return nil, false
 		}
-		f.Chunks[chunkHashString].available = true
-		f.Size += int64(len(chunkData))
+		if err := file.Close(); err != nil { // Close the file
+			return nil, false
+		}
+		f.Chunks[chunkHashString].available = true // Mark chunk as available
+		f.Size += int64(len(chunkData))            // Increase the size
+
+		// Get the next chunk
 		nextIndex := chunk.index + 1
 		for _, c := range f.Chunks {
 			if c.index == nextIndex {
@@ -104,22 +102,6 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 		}
 	}
 	return nil, false
-}
-
-func parseMetaFile(file []byte) map[string]*Chunk {
-	/*Parses the given metafile to get each chunk's hash, and adds the metafile to the file*/
-	numChunks := len(file) / hashSize // Get the number of chunks
-	chunks := make(map[string]*Chunk)
-	for i := 0; i < numChunks; i++ { // Create the chunks with their hashes
-		chunkHash := file[i*hashSize : hashSize*(i+1)]
-		chunkHashString := utils.ToHex(chunkHash)
-		chunks[chunkHashString] = &Chunk{
-			available: false,
-			index:     i,
-			Hash:      chunkHash,
-		}
-	}
-	return chunks
 }
 
 func InitFilesStruct() *Files {
@@ -138,26 +120,7 @@ func (fs *Files) IndexNewFile(filename string) bool {
 	if !fileExists {
 		return false
 	}
-
-	var metaFile []byte // Create metafile and buffer to read file
-	buffer := make([]byte, chunkSize)
-
-	var chunkIndex = 0
-	chunks := make(map[string]*Chunk)
-	for n, err := file.Read(buffer); err == nil; {
-		content := buffer[:n]                   // Read content
-		hash := sha256.Sum256(content)          // Hash 8KiB
-		metaFile = append(metaFile, hash[:]...) // Append to metaFile
-
-		chunks[fmt.Sprintf("%x", hash)] = &Chunk{ // Add chunk
-			available: true,
-			index:     chunkIndex,
-			Hash:      hash[:],
-		}
-		chunkIndex += 1
-		n, err = file.Read(buffer)
-	}
-
+	metaFile, chunks := createMetaFile(file)
 	metaHash := sha256.Sum256(metaFile) // Hash the metaFile
 	hashString := utils.ToHex(metaHash[:])
 
@@ -181,6 +144,7 @@ func (fs *Files) IndexNewFile(filename string) bool {
 }
 
 func (fs *Files) IsIndexed(hash []byte) bool {
+	/*Checks if a hash is already indexed in the structure*/
 	fs.RLock()
 	defer fs.RUnlock()
 	hashString := utils.ToHex(hash)
@@ -199,14 +163,12 @@ func (fs *Files) GetDataChunk(hash []byte) ([]byte, bool) {
 		return elem.Metafile, elem.Metafile != nil
 	} else { // Hash maybe corresponds to a chunk of file
 		for _, file := range fs.files {
-			for h, chunk := range file.Chunks {
-				if hashString == h { // Found the chunk
-					return file.getChunkData(chunk)
-				}
+			if chunk, ok := file.Chunks[hashString]; ok { // Found the chunk
+				return file.getChunkData(chunk)
 			}
 		}
 	}
-	return nil, false // Could not find the has
+	return nil, false // Could not find the hash
 }
 
 func (fs *Files) RegisterRequest(chunkHash []byte, metaHash []byte, filename string, callback func()) {
@@ -237,26 +199,20 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool) {
 	hashValueString := utils.ToHex(dr.HashValue) // Hex hash in reply
 
 	if waiting, ok := fs.waitingChunks[hashValueString]; ok { // Was waiting for this hash
-		waiting.ticker <- true // stop the running ticker
-		if dr.Data == nil {
-			return nil, nil, false
-		}
-		dataHash := sha256.Sum256(dr.Data)         // Compute the hash of the sent data
-		dataHashString := utils.ToHex(dataHash[:]) // Hex hash of data
+		waiting.ticker <- true                          // stop the running ticker
+		defer delete(fs.waitingChunks, hashValueString) // Delete the waiting Chunks
 
-		if dataHashString != hashValueString { // Drop message if incorrect data
+		if dr.Data == nil || !checkDataHash(dr.Data, hashValueString) { // Drop the packet if no Data
 			return nil, nil, false
 		}
 
-		if waiting.metaHash == hashValueString { // This is a requested metaFile
+		if waiting.metaHash == hashValueString { // This is a requested metaFile, need to create the file
 			nextChunk, hasNext = fs.createFile(waiting.filename, dr.HashValue, dr.Data)
-		} else { // This is a requested chunk
-			if file, ok := fs.files[waiting.metaHash]; ok {
-				nextChunk, hasNext = file.addChunk(dr.HashValue, dr.Data)
-			}
+		} else if file, ok := fs.files[waiting.metaHash]; ok { // This is a requested chunk
+			nextChunk, hasNext = file.addChunk(dr.HashValue, dr.Data)
 		}
 		file = fs.files[waiting.metaHash]
-		delete(fs.waitingChunks, hashValueString)
+
 	}
 
 	return file, nextChunk, hasNext
@@ -280,10 +236,56 @@ func (fs *Files) createFile(filename string, metaHash []byte, metaFile []byte) (
 	}
 	fs.files[hashString] = newFile
 	utils.CreateEmptyFile(downloadedDir, filename)
+
 	for _, chunk := range chunks {
 		if chunk.index == 0 {
 			return chunk, true
 		}
 	}
 	return nil, false
+}
+
+func parseMetaFile(file []byte) map[string]*Chunk {
+	/*Parses the given metafile to get each chunk's hash, and adds the metafile to the file*/
+	numChunks := len(file) / hashSize // Get the number of chunks
+	chunks := make(map[string]*Chunk)
+	for i := 0; i < numChunks; i++ { // Create the chunks with their hashes
+		chunkHash := file[i*hashSize : hashSize*(i+1)]
+		chunkHashString := utils.ToHex(chunkHash)
+		chunks[chunkHashString] = &Chunk{
+			available: false,
+			index:     i,
+			Hash:      chunkHash,
+		}
+	}
+	return chunks
+}
+
+func checkDataHash(data []byte, hashString string) bool {
+	/*Checks that SHA256 of the given []byte matches the given hash in hex format*/
+	dataHash := sha256.Sum256(data)
+	dataHashString := utils.ToHex(dataHash[:])
+	return dataHashString == hashString
+}
+
+func createMetaFile(file *os.File) ([]byte, map[string]*Chunk) {
+	/*Reads a file and chunks it into 8KiB chunks, hashes them and concatenates them to an array*/
+	chunks := make(map[string]*Chunk)
+	buffer := make([]byte, chunkSize)
+	var chunkIndex = 0
+	var metaFile []byte
+	for n, err := file.Read(buffer); err == nil; {
+		content := buffer[:n]                   // Read content
+		hash := sha256.Sum256(content)          // Hash 8KiB
+		metaFile = append(metaFile, hash[:]...) // Append to metaFile
+
+		chunks[fmt.Sprintf("%x", hash)] = &Chunk{ // Add chunk
+			available: true,
+			index:     chunkIndex,
+			Hash:      hash[:],
+		}
+		chunkIndex += 1
+		n, err = file.Read(buffer)
+	}
+	return metaFile, chunks
 }

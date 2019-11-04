@@ -287,7 +287,7 @@ func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 
 func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 	/*Handles a DataReply (forwards or processes)*/
-	if dr.HopLimit == 0{
+	if dr.HopLimit == 0 {
 		return
 	}
 	if dr.Destination == gp.Name {
@@ -388,9 +388,10 @@ func (gp *Gossiper) SendDataRequest(fileHash []byte, filename string, request *D
 	}
 	//First send packet
 	gp.SendPacket(nil, nil, nil, nil, request, nil, nextHop)
-	if utils.ToHex(fileHash) == utils.ToHex(request.HashValue) {
+
+	if utils.ToHex(fileHash) == utils.ToHex(request.HashValue) { // This is a MetaFile request
 		fmt.Printf("DOWNLOADING metafile of %v from %v\n", filename, destination)
-	} else {
+	} else { // This is a chunk request
 		fmt.Printf("DOWNLOADING %v chunk %v from %v\n", filename, chunkId+1, destination)
 	}
 	//Register a request for this hash

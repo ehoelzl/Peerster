@@ -65,25 +65,25 @@ func CheckAndOpenRead(dir string, filename string) (bool, *os.File, int64) {
 	return !info.IsDir(), f, info.Size()
 }
 
-func CheckAndOpenWrite(dir string, filename string) (bool, *os.File, int64) {
+func CheckAndOpenWrite(dir string, filename string) (bool, *os.File) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return false, nil, 0
+		return false, nil
 	}
 
-	filePath := filepath.Join(cwd, dir, filename) // Get filePath
-	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, os.ModeAppend)                   // Open file
+	filePath := filepath.Join(cwd, dir, filename)                           // Get filePath
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, os.ModeAppend) // Open file
 
 	if os.IsNotExist(err) { // Check existence
-		return false, nil, 0
+		return false, nil
 	}
 	info, err := f.Stat()
 
 	if err != nil {
-		return false, nil, 0
+		return false, nil
 	}
 
-	return !info.IsDir(), f, info.Size()
+	return !info.IsDir(), f
 }
 
 func CreateEmptyFile(dir string, filename string) {
@@ -92,7 +92,7 @@ func CreateEmptyFile(dir string, filename string) {
 		return
 	}
 	filePath := filepath.Join(cwd, dir, filename)
-	if _, err := os.Create(filePath); err != nil{
+	if _, err := os.Create(filePath); err != nil {
 		return
 	}
 }
