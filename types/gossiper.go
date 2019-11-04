@@ -239,11 +239,13 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 
 func (gp *Gossiper) HandlePrivateMessage(from *net.UDPAddr, pm *PrivateMessage) {
 	/*Handles any PrivateMessage sent by another node */
-
+	if pm.HopLimit <= 0 {
+		return
+	}
 	if pm.Destination == gp.Name { //Message has reached destination
 		fmt.Printf("PRIVATE origin %v hop-limit %v contents %v\n", pm.Origin, pm.HopLimit, pm.Text)
 		gp.PrivateMessages = append(gp.PrivateMessages, pm)
-	} else if pm.HopLimit > 0 { // Otherwise check if HopLimit not exceeded
+	} else {
 		if nextHop, ok := gp.Routing.GetNextHop(pm.Destination); ok {
 			pm.HopLimit -= 1
 			gp.SendPacket(nil, nil, nil, pm, nil, nil, nextHop)
@@ -253,6 +255,9 @@ func (gp *Gossiper) HandlePrivateMessage(from *net.UDPAddr, pm *PrivateMessage) 
 
 func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 	/*Handles a DataRequest (forwards or processes)*/
+	if dr.HopLimit == 0 {
+		return
+	}
 	if dr.Destination == gp.Name {
 		chunk, ok := gp.Files.GetDataChunk(dr.HashValue) // Get the data chunk
 		reply := &DataReply{
@@ -272,7 +277,7 @@ func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 		}
 		gp.SendPacket(nil, nil, nil, nil, nil, reply, nextHop)
 
-	} else if dr.HopLimit > 0 {
+	} else {
 		if nextHop, ok := gp.Routing.GetNextHop(dr.Destination); ok {
 			dr.HopLimit -= 1
 			gp.SendPacket(nil, nil, nil, nil, dr, nil, nextHop)
@@ -282,6 +287,9 @@ func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 
 func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 	/*Handles a DataReply (forwards or processes)*/
+	if dr.HopLimit == 0{
+		return
+	}
 	if dr.Destination == gp.Name {
 		file, nextChunk, hasNext := gp.Files.ParseDataReply(dr)
 		if hasNext {
@@ -295,7 +303,7 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 		} else if file != nil {
 			fmt.Printf("RECONSTRUCTED file %v\n", file.Filename)
 		}
-	} else if dr.HopLimit > 0 {
+	} else {
 		if nextHop, ok := gp.Routing.GetNextHop(dr.Destination); ok {
 			dr.HopLimit -= 1
 			gp.SendPacket(nil, nil, nil, nil, nil, dr, nextHop)
@@ -373,7 +381,7 @@ func (gp *Gossiper) SendRouteRumor() {
 
 /*-------------------- For File Sharing between gossipers ------------------------------*/
 
-func (gp *Gossiper) SendDataRequest(fileHash []byte, filename string,  request *DataRequest, destination string, chunkId int) {
+func (gp *Gossiper) SendDataRequest(fileHash []byte, filename string, request *DataRequest, destination string, chunkId int) {
 	nextHop, ok := gp.Routing.GetNextHop(destination) // Check if nextHop available
 	if !ok {                                          // Cannot request from node that we don't know the path to
 		return
@@ -386,8 +394,8 @@ func (gp *Gossiper) SendDataRequest(fileHash []byte, filename string,  request *
 		fmt.Printf("DOWNLOADING %v chunk %v from %v\n", filename, chunkId+1, destination)
 	}
 	//Register a request for this hash
-	callback := func() {gp.SendDataRequest(fileHash, filename, request, destination, chunkId)} // Callback for ticker
-	gp.Files.RegisterRequest(request.HashValue, fileHash, filename, callback) // Register a ticker for the given hash
+	callback := func() { gp.SendDataRequest(fileHash, filename, request, destination, chunkId) } // Callback for ticker
+	gp.Files.RegisterRequest(request.HashValue, fileHash, filename, callback)                    // Register a ticker for the given hash
 
 }
 

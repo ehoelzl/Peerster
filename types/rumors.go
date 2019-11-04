@@ -20,7 +20,7 @@ func newPeerRumors() *PeerRumors {
 func (p *PeerRumors) addRumor(rumor *RumorMessage) bool {
 	/*Adds the given rumor to the struct, and increments nextId accordingly (accepts rumors when ID >= nextID*/
 	isNewRumor := false
-	if rumor.ID >= p.nextId { // New message
+	if _, ok := p.Messages[rumor.ID]; rumor.ID >= p.nextId && !ok{ // New message
 		isNewRumor = true
 		p.Messages[rumor.ID] = rumor // Add new message to list
 		if rumor.ID == p.nextId {    // Update
