@@ -2,6 +2,20 @@ const {h, Component, render} = preact;
 const html = htm.bind(h);
 const uiAddress = "http://127.0.0.1:8080"
 
+
+function hexStringToByte(str) {
+    if (!str) {
+        return new Uint8Array();
+    }
+
+    var a = [];
+    for (var i = 0, len = str.length; i < len; i+=2) {
+        a.push(parseInt(str.substr(i,2),16));
+    }
+
+    return new Uint8Array(a);
+}
+
 class Node extends Component {
     state = {nodeString: ""};
 
@@ -232,7 +246,7 @@ class ChatBox extends Component {
     }
 }
 
-class Popup extends Component {
+class MessagePopUp extends Component {
     state = {message: ""}
 
     handleChange() {
@@ -247,7 +261,7 @@ class Popup extends Component {
             <textarea value=${this.state.message} onChange=${this.handleChange.bind(this)} style="background: white; width: 50%; height: 100px; resize: none"/>
             <p>
             <button onClick=${() => this.props.send(this.props.destination, this.state.message)} style="width: 200px;">Send</button>
-            <button onClick=${this.props.cancel} style="width: 200px">Cancel</button>
+            <button onClick=${() => this.props.cancel()} style="width: 200px">Cancel</button>
             </p>
           </div>
         </div>
@@ -255,8 +269,44 @@ class Popup extends Component {
     }
 }
 
-class PrivateMessages extends Component {
-    state = {peers: [], popUp: false, destination: null};
+class FileRequestPopUp extends Component {
+    state = {filename: "", filehash : ""}
+
+    handleChange() {
+        if (event.target.name  == "filename"){
+            this.setState(({filename}) => ({filename : event.target.value}))
+        } else {
+            this.setState(({filehash}) => ({filehash : event.target.value}))
+        }
+    }
+
+    render() {
+        return html`
+        <div class='popup'>
+          <div class='popup\_inner'>
+            <div style="text-align: center; margin-top: 30px; margin-bottom: 15px">Request file from ${this.props.destination}</div>
+            <form>
+                <label>
+                    Filename
+                    <input type="text" style="width: 40%; margin-left: 10px" value=${this.state.filename} onchange=${this.handleChange.bind(this)} name="filename" />
+                </label>
+                <label>
+                    File Hash
+                    <input type="text" style="width: 40%; margin-left: 10px" value=${this.state.filehash} onchange=${this.handleChange.bind(this)} name="filehash" />
+                </label>
+            </form>
+            <p>
+            <button onClick=${() => this.props.send(this.props.destination, this.state.filename, this.state.filehash)} style="width: 200px;">Request</button>
+            <button onClick=${() => this.props.cancel()} style="width: 200px">Cancel</button>
+            </p>
+          </div>
+        </div>
+    `
+    }
+}
+
+class Origins extends Component {
+    state = {peers: [], messagePopUp: false, destination: null, fileRequestPopUp: false};
 
     refreshOrigins() {
         $.getJSON(uiAddress + '/origins', function (data) {
@@ -274,7 +324,7 @@ class PrivateMessages extends Component {
     }
 
     shouldComponentUpdate(nextProps, nextState) {
-        return !(this.state.popUp && nextState.popUp)
+        return !(this.state.messagePopUp && nextState.messagePopUp) && !(this.state.fileRequestPopUp && nextState.fileRequestPopUp)
     }
 
     sendPrivateMessage(to, message) {
@@ -297,28 +347,71 @@ class PrivateMessages extends Component {
                 }
             })
         }
-        this.togglePopUp()
+        this.toggleMessagePopUp()
+    }
+
+    requestFile(to, filename, filehash) {
+        if (filename.length == 0) {
+            alert("Please specify a filename")
+        } else if (filehash.length == 0) {
+            alert("Please specify a hash")
+        } else {
+            $.ajax({
+                type: 'POST',
+                url: uiAddress + '/message',
+                async: false,
+                data: JSON.stringify({"File": filename, "Destination": to, "Request": Array.from(hexStringToByte(filehash))}),
+                contentType: "application/json",
+                dataType: 'json',
+                error: (d, t, x) => {
+                    if (d.status == 400) {
+                        alert("Could not send private message")
+                    } else if (d.status == 200) {
+                        alert("Success")
+                    }
+                }
+            })
+        }
+        this.toggleFileRequestPopUp()
     }
 
     renderPeerButton(peer) {
         return html`
           <div class="message">
-            <div style="width: 50%;font-family: monospace; float: left; height: 100%">${peer}</div>
-            <div style="width: 50%; float: right"><button onClick=${() => {
-            this.setState(({destination}) => ({destination: peer}));
-            this.togglePopUp()
-        }} style="font-size: 12px">Send Private Message</button></div>
+            <div style="width: 40%;font-family: monospace; float: left; height: 100%">${peer}</div>
+            
+            <div style="width: 60%; float: right; overflow: hidden">
+            <button style="font-size: 10px; float: left; border-radius: 3px;" onClick=${
+            () => {
+                    this.setState(({destination}) => ({destination: peer}));
+                    this.toggleMessagePopUp()
+                }
+            } >Send Private Message</button>
+            
+            <button style="overflow: right; font-size: 10px; border-radius: 3px;" onClick=${
+            () => {
+                    this.setState(({destination}) => ({destination: peer}));
+                    this.toggleFileRequestPopUp()
+                }
+            }>Request File</button>
+            </div>
             </div>
     `
     }
 
-    togglePopUp() {
-        this.setState(({popUp}) => ({popUp: !this.state.popUp}))
+    toggleMessagePopUp() {
+        this.setState(({messagePopUp}) => ({messagePopUp: !this.state.messagePopUp}))
+    }
+
+    toggleFileRequestPopUp() {
+        this.setState(({fileRequestPopUp}) => ({fileRequestPopUp: !this.state.fileRequestPopUp}))
     }
 
     renderPopUp() {
-        if (this.state.popUp) {
-            return html`<${Popup} destination=${this.state.destination} send=${this.sendPrivateMessage.bind(this)} cancel=${this.togglePopUp.bind(this)}/>`
+        if (this.state.messagePopUp) {
+            return html`<${MessagePopUp} destination=${this.state.destination} send=${this.sendPrivateMessage.bind(this)} cancel=${this.toggleMessagePopUp.bind(this)}/>`
+        } else if (this.state.fileRequestPopUp) {
+            return html`<${FileRequestPopUp} destination=${this.state.destination} send=${this.requestFile.bind(this)} cancel=${this.toggleFileRequestPopUp.bind(this)}/>`
         }
     }
 
@@ -336,7 +429,6 @@ class PrivateMessages extends Component {
         </div>
       </section>
     `
-
     }
 }
 
@@ -375,6 +467,50 @@ class ShareFile extends Component {
     }
 }
 
+class Files extends Component {
+    state = {files : {}}
+
+    refreshFiles() {
+        $.getJSON(uiAddress + '/files', function (data) {
+            this.setState(({files}) => ({files: data}))
+        }.bind(this))
+    }
+
+    componentDidMount() {
+        this.refreshFiles();
+        setInterval(() => this.refreshFiles(), 5 * 1000)
+    }
+
+    renderFiles() {
+        var items = [];
+        for (var fileHash in this.state.files) {
+            var file = this.state.files[fileHash]
+            var filename = file.Filename
+            var size = file.Size
+            items.push(html`
+                <div class="file">               
+                    <div style="margin-bottom: 5px">${filename} (${size} Bytes)</div>
+                    <div style="font-size: 12px">${file.Directory}, ${fileHash}</div>
+                </div>
+            `)
+
+            return items
+        }
+    }
+
+    render() {
+        return html`
+        <section>
+          <div style="padding-bottom: 20px">
+            <div style="font-weight: bold; margin-bottom: 20px">Indexed files</div>
+             <div>
+                ${this.renderFiles()}        
+            </div>
+          </div>
+        </section>
+    `
+    }
+}
 class App extends Component {
     render() {
         return html`
@@ -388,8 +524,9 @@ class App extends Component {
           <div class="box b"><${MessagesBox}/></div>
           <div class="box c"><${NodesBox}/></div>
           <div class="box d"><${ChatBox}/></div>
-          <div class="box e"><${PrivateMessages}/></div>
+          <div class="box e"><${Origins}/></div>
           <div class="box f"><${ShareFile}/></div>
+          <div class="box g"><${Files}/></div>
        </div>
       </section>
     `

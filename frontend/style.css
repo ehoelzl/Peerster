@@ -53,6 +53,11 @@ body {
   grid-column: 1;
   grid-row: 3;
 }
+.g {
+  grid-column: 3;
+  grid-row: 3 /span 2;
+  width: 500px;
+}
 
 .peers{
   font-family: monospace;
@@ -115,4 +120,11 @@ hr {
   text-align: center;
   border-radius: 20px;
   background: white;
+}
+
+.file {
+  font-family: monospace;
+  font-size: 15px;
+  border-bottom: 1px dotted;
+  margin-bottom: 5px;
 }

@@ -218,6 +218,12 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool) {
 	return file, nextChunk, hasNext
 }
 
+func (fs *Files) GetAll() map[string]*File{
+	fs.RLock()
+	defer fs.RUnlock()
+	return fs.files
+}
+
 func (fs *Files) createFile(filename string, metaHash []byte, metaFile []byte) (*Chunk, bool) {
 	/*Creates an empty File struct to start downloading, puts the Directory as downloadedDir*/
 	hashString := utils.ToHex(metaHash)

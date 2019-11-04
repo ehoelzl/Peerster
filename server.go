@@ -78,6 +78,22 @@ func (s *Server) GetNodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) GetFilesHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	messages := s.Gossiper.Files.GetAll()
+/*	for h, m := range messages {
+		cwd, _ := os.Getwd()
+		directory := filepath.Join(cwd, m.Directory, m.Filename)
+		messages[h].Directory = directory
+	}*/
+	jsonString, _ := json.Marshal(messages)
+	_, err := io.WriteString(w, string(jsonString))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func (s *Server) GetOriginHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -112,14 +128,13 @@ func (s *Server) PostMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	var mess Message
 	err := decoder.Decode(&mess)
-
 	if err != nil {
 		log.Println("Could not decode message from UI")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	if mess.File == nil { // Private or rumor message
+	if mess.File == nil || (mess.File != nil && mess.Destination != nil) { // Private or rumor message, or file request
 		w.WriteHeader(http.StatusOK)
 		packetBytes, err := protobuf.Encode(&mess)
 		if err != nil {
@@ -177,6 +192,7 @@ func NewServer(addr string, gossiper *Gossiper) {
 	r.HandleFunc("/id", server.GetIdHandler).Methods("GET")
 	r.HandleFunc("/origins", server.GetOriginHandler).Methods("GET")
 	r.HandleFunc("/private", server.GetPrivateMessageHandler).Methods("GET")
+	r.HandleFunc("/files", server.GetFilesHandler).Methods("GET")
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./frontend/")))
 	handler := cors.Default().Handler(r)
 	srv := &http.Server{
