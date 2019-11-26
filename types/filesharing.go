@@ -2,7 +2,6 @@ package types
 
 import (
 	"crypto/sha256"
-	"fmt"
 	"github.com/ehoelzl/Peerster/utils"
 	"log"
 	"os"
@@ -232,7 +231,7 @@ func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile [
 		return nil, false
 	}
 
-	chunks := parseMetaFile(metaFile)
+	chunks := parseMetaFile(metaFile) // Parse all the chunks
 	filePath := utils.GetAbsolutePath(downloadedDir, filename)
 
 	newFile := &File{
@@ -258,6 +257,7 @@ func parseMetaFile(file []byte) map[string]*Chunk {
 	/*Parses the given metafile to get each chunk's hash, and adds the metafile to the file*/
 	numChunks := len(file) / hashSize // Get the number of chunks
 	chunks := make(map[string]*Chunk)
+
 	for i := 0; i < numChunks; i++ { // Create the chunks with their hashes
 		chunkHash := file[i*hashSize : hashSize*(i+1)]
 		chunkHashString := utils.ToHex(chunkHash)
@@ -281,14 +281,16 @@ func createMetaFile(file *os.File) ([]byte, map[string]*Chunk) {
 	/*Reads a file and chunks it into 8KiB chunks, hashes them and concatenates them to an array*/
 	chunks := make(map[string]*Chunk)
 	buffer := make([]byte, chunkSize)
+
 	var chunkIndex = 0
 	var metaFile []byte
+
 	for n, err := file.Read(buffer); err == nil; {
 		content := buffer[:n]                   // Read content
 		hash := sha256.Sum256(content)          // Hash 8KiB
 		metaFile = append(metaFile, hash[:]...) // Append to metaFile
 
-		chunks[fmt.Sprintf("%x", hash)] = &Chunk{ // Add chunk
+		chunks[utils.ToHex(hash[:])] = &Chunk{ // Add chunk
 			available: true,
 			index:     chunkIndex,
 			Hash:      hash[:],

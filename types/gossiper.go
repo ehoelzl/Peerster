@@ -381,7 +381,7 @@ func (gp *Gossiper) SendRouteRumor() {
 
 /*-------------------- For File Sharing between gossipers ------------------------------*/
 
-func (gp *Gossiper) SendDataRequest(fileHash []byte, filename string, request *DataRequest, destination string, chunkId int) {
+func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *DataRequest, destination string, chunkId int) {
 	nextHop, ok := gp.Routing.GetNextHop(destination) // Check if nextHop available
 	if !ok {                                          // Cannot request from node that we don't know the path to
 		return
@@ -389,14 +389,14 @@ func (gp *Gossiper) SendDataRequest(fileHash []byte, filename string, request *D
 	//First send packet
 	gp.SendPacket(nil, nil, nil, nil, request, nil, nextHop)
 
-	if utils.ToHex(fileHash) == utils.ToHex(request.HashValue) { // This is a MetaFile request
+	if utils.ToHex(metaHash) == utils.ToHex(request.HashValue) { // This is a MetaFile request
 		fmt.Printf("DOWNLOADING metafile of %v from %v\n", filename, destination)
 	} else { // This is a chunk request
 		fmt.Printf("DOWNLOADING %v chunk %v from %v\n", filename, chunkId+1, destination)
 	}
 	//Register a request for this hash
-	callback := func() { gp.SendDataRequest(fileHash, filename, request, destination, chunkId) } // Callback for ticker
-	gp.Files.RegisterRequest(request.HashValue, fileHash, filename, callback)                    // Register a ticker for the given hash
+	callback := func() { gp.SendDataRequest(metaHash, filename, request, destination, chunkId) } // Callback for ticker
+	gp.Files.RegisterRequest(request.HashValue, metaHash, filename, callback)                    // Register a ticker for the given hash
 
 }
 

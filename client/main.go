@@ -29,10 +29,14 @@ func main() {
 			fmt.Println("ERROR (Bad argument combination)")
 			os.Exit(1)
 		}
-	} else { // Either file indexing or request
+	} else { // Either file indexing or request // TODO: review all combinations of CLI
 		if len(*file) == 0 {
 			fmt.Println("ERROR (Bad argument combination)")
 			os.Exit(1)
+		}
+
+		if !(len(*dest) > 0 && len(*request) > 0){
+
 		}
 		if (len(*dest) > 0 && len(*request) == 0) || (len(*dest) == 0 && len(*request) > 0) { // Checks if request arguments are okay
 			fmt.Println("ERROR (Bad argument combination)")
