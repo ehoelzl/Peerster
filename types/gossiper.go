@@ -381,7 +381,7 @@ func (gp *Gossiper) SendRouteRumor() {
 
 /*-------------------- For File Sharing between gossipers ------------------------------*/
 
-func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *DataRequest, destination string, chunkId int) {
+func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *DataRequest, destination string, chunkId uint64) {
 	nextHop, ok := gp.Routing.GetNextHop(destination) // Check if nextHop available
 	if !ok {                                          // Cannot request from node that we don't know the path to
 		return
@@ -409,6 +409,6 @@ func (gp *Gossiper) StartFileDownload(message *Message) {
 		HopLimit:    hopLimit - 1,
 		HashValue:   metaHash,
 	}
-	gp.SendDataRequest(metaHash, *message.File, metaRequest, *message.Destination, -1)
+	gp.SendDataRequest(metaHash, *message.File, metaRequest, *message.Destination, 0)
 
 }
