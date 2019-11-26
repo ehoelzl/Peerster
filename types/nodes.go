@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-
 type Node struct {
 	ticker   chan bool
 	lastSent *RumorMessage
@@ -95,15 +94,15 @@ func (nodes *Nodes) StartTicker(address *net.UDPAddr, message *RumorMessage, cal
 	defer nodes.Unlock()
 	if node, ok := nodes.nodes[address.String()]; ok {
 		if node.ticker != nil {
-			node.ticker<-true // If other ticker running, kill it
+			node.ticker <- true // If other ticker running, kill it
 		}
-		node.ticker = NewTimoutTicker(callback, 10) // Create a new ticker
+		node.ticker = newTimoutTicker(callback, 10) // Create a new ticker
 		node.lastSent = message
 	}
 }
 
 func (nodes *Nodes) DeleteTicker(address *net.UDPAddr) {
-	/*Deletes */
+	/*Deletes the ticker for the given address*/
 	nodes.Lock()
 	defer nodes.Unlock()
 	if node, ok := nodes.nodes[address.String()]; ok {
@@ -121,30 +120,53 @@ func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr) (*RumorMessage, bool) {
 		if node.ticker == nil { // If no ticker running, means no message
 			return nil, false
 		}
-		node.ticker<-true // Kill the ticker
+		node.ticker <- true // Kill the ticker
 		node.ticker = nil
-		lastMessage = node.lastSent
+		lastMessage = node.lastSent // Get the last sent message for CoinFlip
 		node.lastSent = nil
 
-		if lastMessage == nil { // Should never go in there TODO: remove
-			log.Println("Got non nil ticker with nil message")
+		if lastMessage == nil { // Should never go in there
 			return nil, false
 		}
-
 		return lastMessage, true
-
 	}
 	return nil, false
 }
 
-func (nodes *Nodes) GetAll() map[string]*Node {
-	/*Returns the map of all nodes*/
+func (nodes *Nodes) DistributeBudget(budget uint64) map[*net.UDPAddr]uint64 {
+	/*Distributes evenly the Budget amongst known nodes*/
 	nodes.RLock()
 	defer nodes.RUnlock()
-	return nodes.nodes
+	nodeBudgets := make(map[*net.UDPAddr]uint64)
+
+	for budget > 0 {
+		for _, n := range nodes.nodes {
+			if _, ok := nodeBudgets[n.udpAddr]; ok {
+				nodeBudgets[n.udpAddr] += 1
+			} else {
+				nodeBudgets[n.udpAddr] = 1
+			}
+			budget -= 1
+			if budget <= 0 {
+				break
+			}
+		}
+	}
+	return nodeBudgets
 }
 
-func NewTimoutTicker(callback func(), seconds time.Duration) chan bool {
+func (nodes *Nodes) GetAll() []*net.UDPAddr {
+	/*Returns all the addresses of nodes*/
+	nodes.RLock()
+	defer nodes.RUnlock()
+	var addresses []*net.UDPAddr
+	for _, node := range nodes.nodes {
+		addresses = append(addresses, node.udpAddr)
+	}
+	return addresses
+}
+
+func newTimoutTicker(callback func(), seconds time.Duration) chan bool {
 	/*Creates a ticker that ticks only once and calls the callback function*/
 	ticker := time.NewTicker(seconds * time.Second)
 	stop := make(chan bool)

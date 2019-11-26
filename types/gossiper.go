@@ -336,9 +336,9 @@ func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) {
 	/*Broadcasts the SimpleMessage to all known nodes*/
 	nodeAddresses := gp.Nodes.GetAll()
-	for nodeAddr, node := range nodeAddresses {
-		if nodeAddr != except.String() {
-			gp.SendPacket(packet, nil, nil, nil, nil, nil, node.udpAddr)
+	for _, nodeAddr := range nodeAddresses {
+		if nodeAddr.String() != except.String() {
+			gp.SendPacket(packet, nil, nil, nil, nil, nil, nodeAddr)
 		}
 	}
 }
