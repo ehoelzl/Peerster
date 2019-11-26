@@ -20,7 +20,7 @@ class Node extends Component {
     state = {nodeString: ""};
 
     refreshNode() {
-        $.getJSON(uiAddress + "/id", function (data) {
+        $.getJSON("/id", function (data) {
             this.setState(({gossipAddress, name}) => (data))
             this.setState(({disconnected}) => ({disconnected: false}))
         }.bind(this)).fail(function () {
@@ -62,7 +62,7 @@ class NodesBox extends Component {
     state = {nodes: [], newNode: ""};
 
     refreshNodes() {
-        $.getJSON(uiAddress + '/node', function (data) {
+        $.getJSON('/node', function (data) {
             this.setState(({nodes}) => ({nodes: data}))
         }.bind(this)).fail(function () {
             this.setState(({nodes}) => ({nodes: []}))
@@ -82,7 +82,7 @@ class NodesBox extends Component {
 
         $.ajax({
             type: 'POST',
-            url: uiAddress + '/node',
+            url: '/node',
             async: false,
             data: JSON.stringify({"Text": this.state.newNode}),
             contentType: "application/json",
@@ -132,10 +132,10 @@ class MessagesBox extends Component {
     state = {messages: {}, privateMessages: {}}
 
     refreshMessages() {
-        $.getJSON(uiAddress + '/message', function (data) {
+        $.getJSON('/message', function (data) {
             this.setState(({messages}) => ({messages: data}))
         }.bind(this))
-        $.getJSON(uiAddress + '/private', function (data) {
+        $.getJSON('/private', function (data) {
             this.setState(({privateMessages}) => ({privateMessages: data}))
         }.bind(this))
     }
@@ -225,7 +225,7 @@ class ChatBox extends Component {
         }
         $.ajax({
             type: 'POST',
-            url: uiAddress + '/message',
+            url: '/message',
             async: false,
             data: JSON.stringify({"Text": this.state.message}),
             contentType: "application/json",
@@ -309,7 +309,7 @@ class Origins extends Component {
     state = {peers: [], messagePopUp: false, destination: null, fileRequestPopUp: false};
 
     refreshOrigins() {
-        $.getJSON(uiAddress + '/origins', function (data) {
+        $.getJSON('/origins', function (data) {
             if (data != null) {
                 this.setState(({peers}) => ({peers: data.sort()}))
             }
@@ -333,7 +333,7 @@ class Origins extends Component {
         } else {
             $.ajax({
                 type: 'POST',
-                url: uiAddress + '/message',
+                url: '/message',
                 async: false,
                 data: JSON.stringify({"Text": message, "Destination": to}),
                 contentType: "application/json",
@@ -358,7 +358,7 @@ class Origins extends Component {
         } else {
             $.ajax({
                 type: 'POST',
-                url: uiAddress + '/message',
+                url: '/message',
                 async: false,
                 data: JSON.stringify({"File": filename, "Destination": to, "Request": Array.from(hexStringToByte(filehash))}),
                 contentType: "application/json",
@@ -438,7 +438,7 @@ class ShareFile extends Component {
         e.preventDefault()
         $.ajax({
             type: 'POST',
-            url: uiAddress + '/message',
+            url: '/message',
             async: false,
             data: JSON.stringify({"File": e.target.files[0].name}),
             contentType: "application/json",
@@ -471,7 +471,7 @@ class Files extends Component {
     state = {files : {}}
 
     refreshFiles() {
-        $.getJSON(uiAddress + '/files', function (data) {
+        $.getJSON('/files', function (data) {
             this.setState(({files}) => ({files: data}))
         }.bind(this))
     }
@@ -490,7 +490,8 @@ class Files extends Component {
             items.push(html`
                 <div class="file">               
                     <div style="margin-bottom: 5px">${filename} (${size} Bytes)</div>
-                    <div style="font-size: 12px">${file.Directory}, ${fileHash}</div>
+                    <div style="font-size: 10px">${file.Path}</div>
+                    <div style="font-size: 10px">${fileHash}</div>
                 </div>
             `)
 

@@ -45,10 +45,10 @@ func main() {
 
 	flag.Parse()
 	CLIAddress := "127.0.0.1:" + *uiPort
-	GUIListen := "127.0.0.1:8080"
+	//GUIListen := "127.0.0.1:8080"
 	gp, created := NewGossiper(CLIAddress, *gossipAddr, *name, *peers, *simple, *antiEntropy, *rtimer)
 	if created {
-		go NewServer(GUIListen, gp)
+		go NewServer(CLIAddress, gp)
 		go StartGossipListener(gp)
 		StartClientListener(gp)
 	}

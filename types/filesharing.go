@@ -21,12 +21,12 @@ type Chunk struct {
 }
 
 type File struct {
-	Filename  string
-	Directory string
-	Metafile  []byte
-	Size      int64
-	Chunks    map[string]*Chunk
-	MetaHash  []byte
+	Filename string
+	Path     string
+	Metafile []byte
+	Size     int64
+	Chunks   map[string]*Chunk
+	MetaHash []byte
 	sync.RWMutex
 }
 
@@ -51,7 +51,7 @@ func (f *File) getChunkData(chunk *Chunk) ([]byte, bool) {
 	if !chunk.available {
 		return nil, false
 	}
-	exists, file, _ := utils.CheckAndOpenRead(f.Directory, f.Filename) // Open the file
+	exists, file, _ := utils.CheckAndOpenRead(f.Path) // Open the file
 	if !exists {
 		return nil, false
 	}
@@ -79,7 +79,7 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 
 	chunkHashString := utils.ToHex(chunkHash)
 	if chunk, ok := f.Chunks[chunkHashString]; ok && !chunk.available { // Check that the chunk was not received already
-		exists, file := utils.CheckAndOpenWrite(f.Directory, f.Filename) // Open the file
+		exists, file := utils.CheckAndOpenWrite(f.Path) // Open the file
 		if !exists {
 			return nil, false
 		}
@@ -116,7 +116,8 @@ func (fs *Files) IndexNewFile(filename string) bool {
 	fs.Lock()
 	defer fs.Unlock()
 
-	fileExists, file, fileSize := utils.CheckAndOpenRead(sharedFilesDir, filename) // Open file and check existence
+	filePath := utils.GetAbsolutePath(sharedFilesDir, filename)
+	fileExists, file, fileSize := utils.CheckAndOpenRead(filePath) // Open file and check existence
 	if !fileExists {
 		return false
 	}
@@ -129,12 +130,12 @@ func (fs *Files) IndexNewFile(filename string) bool {
 	}
 
 	newFile := &File{
-		Filename:  filename,
-		Directory: sharedFilesDir,
-		Metafile:  metaFile,
-		Size:      fileSize,
-		Chunks:    chunks,
-		MetaHash:  metaHash[:],
+		Filename: filename,
+		Path:     filePath,
+		Metafile: metaFile,
+		Size:     fileSize,
+		Chunks:   chunks,
+		MetaHash: metaHash[:],
 	}
 
 	fs.files[hashString] = newFile
@@ -207,7 +208,7 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool) {
 		}
 
 		if waiting.metaHash == hashValueString { // This is a requested metaFile, need to create the file
-			nextChunk, hasNext = fs.createFile(waiting.filename, dr.HashValue, dr.Data)
+			nextChunk, hasNext = fs.createDownloadFile(waiting.filename, dr.HashValue, dr.Data)
 		} else if file, ok := fs.files[waiting.metaHash]; ok { // This is a requested chunk
 			nextChunk, hasNext = file.addChunk(dr.HashValue, dr.Data)
 		}
@@ -218,30 +219,32 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool) {
 	return file, nextChunk, hasNext
 }
 
-func (fs *Files) GetAll() map[string]*File{
+func (fs *Files) GetAll() map[string]*File {
 	fs.RLock()
 	defer fs.RUnlock()
 	return fs.files
 }
 
-func (fs *Files) createFile(filename string, metaHash []byte, metaFile []byte) (*Chunk, bool) {
-	/*Creates an empty File struct to start downloading, puts the Directory as downloadedDir*/
+func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile []byte) (*Chunk, bool) {
+	/*Creates an empty File struct to start downloading, puts the Path as downloadedDir*/
 	hashString := utils.ToHex(metaHash)
 	if _, ok := fs.files[hashString]; ok { // Check if we don't have the file already
 		return nil, false
 	}
 
 	chunks := parseMetaFile(metaFile)
+	filePath := utils.GetAbsolutePath(downloadedDir, filename)
+
 	newFile := &File{
-		Filename:  filename,
-		Metafile:  metaFile,
-		Directory: downloadedDir,
-		Size:      0,
-		Chunks:    chunks,
-		MetaHash:  metaHash,
+		Filename: filename,
+		Metafile: metaFile,
+		Path:     filePath,
+		Size:     0,
+		Chunks:   chunks,
+		MetaHash: metaHash,
 	}
 	fs.files[hashString] = newFile
-	utils.CreateEmptyFile(downloadedDir, filename)
+	utils.CreateEmptyFile(filePath)
 
 	for _, chunk := range chunks {
 		if chunk.index == 0 {

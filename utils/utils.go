@@ -44,13 +44,7 @@ func NewTicker(callback func(), seconds time.Duration) chan bool {
 	return stop
 }
 
-func CheckAndOpenRead(dir string, filename string) (bool, *os.File, int64) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return false, nil, 0
-	}
-
-	filePath := filepath.Join(cwd, dir, filename) // Get filePath
+func CheckAndOpenRead(filePath string) (bool, *os.File, int64) {
 	f, err := os.Open(filePath)                   // Open file
 
 	if os.IsNotExist(err) { // Check existence
@@ -65,13 +59,7 @@ func CheckAndOpenRead(dir string, filename string) (bool, *os.File, int64) {
 	return !info.IsDir(), f, info.Size()
 }
 
-func CheckAndOpenWrite(dir string, filename string) (bool, *os.File) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return false, nil
-	}
-
-	filePath := filepath.Join(cwd, dir, filename)                           // Get filePath
+func CheckAndOpenWrite(filePath string) (bool, *os.File) {
 	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, os.ModeAppend) // Open file
 
 	if os.IsNotExist(err) { // Check existence
@@ -86,15 +74,19 @@ func CheckAndOpenWrite(dir string, filename string) (bool, *os.File) {
 	return !info.IsDir(), f
 }
 
-func CreateEmptyFile(dir string, filename string) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return
-	}
-	filePath := filepath.Join(cwd, dir, filename)
+func CreateEmptyFile(filePath string) {
 	if _, err := os.Create(filePath); err != nil {
 		return
 	}
+}
+
+func GetAbsolutePath(directory string, filename string) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	filePath := filepath.Join(cwd, directory, filename)
+	return filePath
 }
 
 func ToHex(hash []byte) string {
