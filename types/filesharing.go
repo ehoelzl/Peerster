@@ -6,6 +6,7 @@ import (
 	"github.com/ehoelzl/Peerster/utils"
 	"log"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -16,7 +17,7 @@ var hashSize int = 32
 
 type Chunk struct {
 	available bool
-	index     int
+	index     uint64
 	Hash      []byte
 }
 
@@ -102,6 +103,23 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 		}
 	}
 	return nil, false
+}
+
+func (f *File) searchResult() *SearchResult {
+	var chunkMap []uint64
+	for _, c := range f.Chunks {
+		if c.available {
+			chunkMap = append(chunkMap, c.index)
+		}
+	}
+
+	chunkCount := len(f.Metafile) / hashSize
+	return &SearchResult{
+		FileName:     f.Filename,
+		MetafileHash: f.MetaHash,
+		ChunkMap:     chunkMap,
+		ChunkCount:   uint64(chunkCount),
+	}
 }
 
 func InitFilesStruct() *Files {
@@ -219,6 +237,24 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool) {
 	return file, nextChunk, hasNext
 }
 
+func (fs *Files) SearchFiles(keywords []string) ([]*SearchResult, bool) {
+	/*Searches for files that contain the given keywords*/
+	matches := make(map[string]bool)
+	var results []*SearchResult
+	for _, k := range keywords {
+		if k == "" {
+			continue
+		}
+		for _, f := range fs.files {
+			if _, ok := matches[f.Filename]; strings.Contains(f.Filename, k) && !ok { // Match for this name
+				matches[f.Filename] = true
+				results = append(results, f.searchResult())
+			}
+		}
+	}
+	return results, len(results) > 0
+}
+
 func (fs *Files) GetJsonString() []byte {
 	fs.RLock()
 	defer fs.RUnlock()
@@ -269,7 +305,7 @@ func parseMetaFile(file []byte) map[string]*Chunk {
 		chunkHashString := utils.ToHex(chunkHash)
 		chunks[chunkHashString] = &Chunk{
 			available: false,
-			index:     i,
+			index:     uint64(i),
 			Hash:      chunkHash,
 		}
 	}
@@ -281,7 +317,7 @@ func createMetaFile(file *os.File) ([]byte, map[string]*Chunk) {
 	chunks := make(map[string]*Chunk)
 	buffer := make([]byte, chunkSize)
 
-	var chunkIndex = 0
+	var chunkIndex uint64 = 0
 	var metaFile []byte
 
 	for n, err := file.Read(buffer); err == nil; {
