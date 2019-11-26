@@ -203,7 +203,7 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool) {
 		waiting.ticker <- true                          // stop the running ticker
 		defer delete(fs.waitingChunks, hashValueString) // Delete the waiting Chunks
 
-		if dr.Data == nil || !checkDataHash(dr.Data, hashValueString) { // Drop the packet if no Data
+		if dr.Data == nil || !utils.CheckDataHash(dr.Data, hashValueString) { // Drop the packet if no Data
 			return nil, nil, false
 		}
 
@@ -274,13 +274,6 @@ func parseMetaFile(file []byte) map[string]*Chunk {
 		}
 	}
 	return chunks
-}
-
-func checkDataHash(data []byte, hashString string) bool {
-	/*Checks that SHA256 of the given []byte matches the given hash in hex format*/
-	dataHash := sha256.Sum256(data)
-	dataHashString := utils.ToHex(dataHash[:])
-	return dataHashString == hashString
 }
 
 func createMetaFile(file *os.File) ([]byte, map[string]*Chunk) {

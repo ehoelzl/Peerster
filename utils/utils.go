@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -52,3 +53,11 @@ func ToBytes(hash string) []byte {
 	}
 	return b
 }
+
+func CheckDataHash(data []byte, hashString string) bool {
+	/*Checks that SHA256 of the given []byte matches the given hash in hex format*/
+	dataHash := sha256.Sum256(data)
+	dataHashString := ToHex(dataHash[:])
+	return dataHashString == hashString
+}
+
