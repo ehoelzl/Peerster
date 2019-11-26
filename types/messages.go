@@ -11,6 +11,8 @@ type Message struct {
 	Destination *string
 	File        *string
 	Request     *[]byte
+	Budget      *uint64
+	Keywords    *[]string
 }
 
 type SimpleMessage struct {
