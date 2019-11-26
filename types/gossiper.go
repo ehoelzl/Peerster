@@ -259,18 +259,15 @@ func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 		return
 	}
 	if dr.Destination == gp.Name {
-		chunk, ok := gp.Files.GetDataChunk(dr.HashValue) // Get the data chunk
+		chunk := gp.Files.GetDataChunk(dr.HashValue) // Get the data chunk
 		reply := &DataReply{
 			Origin:      gp.Name,
 			Destination: dr.Origin,
 			HopLimit:    hopLimit - 1,
 			HashValue:   dr.HashValue,
-			Data:        nil,
+			Data:        chunk,
 		}
 
-		if ok { // IF it is available, add it to the packet
-			reply.Data = chunk
-		}
 		nextHop, ok := gp.Routing.GetNextHop(reply.Destination)
 		if !ok {
 			return

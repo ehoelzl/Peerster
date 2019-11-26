@@ -43,34 +43,34 @@ type Files struct {
 	sync.RWMutex
 }
 
-func (f *File) getChunkData(chunk *Chunk) ([]byte, bool) {
+func (f *File) getChunkData(chunk *Chunk) []byte {
 	/*Returns the data associated to the given chunk (Opens the file, reads the chunk and returns it)*/
 	f.Lock()
 	defer f.Unlock()
 
 	// If chunk not available, cannot send
 	if !chunk.available {
-		return nil, false
+		return nil
 	}
 	exists, file, _ := utils.CheckAndOpenRead(f.Path) // Open the file
 	if !exists {
-		return nil, false
+		return nil
 	}
 	_, err := file.Seek(int64(chunk.index)*chunkSize, 0) // Seek to chunk index
 	if err != nil {
-		return nil, false
+		return nil
 	}
 	dataChunk := make([]byte, chunkSize)
 	n, err := file.Read(dataChunk) // Read into buffer
 	if err != nil {
-		return nil, false
+		return nil
 	}
 
 	if err := file.Close(); err != nil {
-		return nil, false
+		return nil
 	}
 
-	return dataChunk[:n], true
+	return dataChunk[:n]
 }
 
 func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
@@ -171,7 +171,7 @@ func (fs *Files) IsIndexed(hash []byte) bool {
 	return ok
 }
 
-func (fs *Files) GetDataChunk(hash []byte) ([]byte, bool) {
+func (fs *Files) GetDataChunk(hash []byte) []byte {
 	/*Returns any chunk of data given it's Hash*/
 	fs.RLock()
 	defer fs.RUnlock()
@@ -179,7 +179,7 @@ func (fs *Files) GetDataChunk(hash []byte) ([]byte, bool) {
 
 	// First check if it corresponds to a metafile
 	if elem, ok := fs.files[hashString]; ok { // Means Hash corresponds to metafile
-		return elem.Metafile, elem.Metafile != nil
+		return elem.Metafile
 	} else { // Hash maybe corresponds to a chunk of file
 		for _, file := range fs.files {
 			if chunk, ok := file.Chunks[hashString]; ok { // Found the chunk
@@ -187,7 +187,7 @@ func (fs *Files) GetDataChunk(hash []byte) ([]byte, bool) {
 			}
 		}
 	}
-	return nil, false // Could not find the hash
+	return nil // Could not find the hash
 }
 
 func (fs *Files) RegisterRequest(chunkHash []byte, metaHash []byte, filename string, callback func()) {
