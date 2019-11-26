@@ -2,6 +2,7 @@ package types
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"github.com/ehoelzl/Peerster/utils"
 	"log"
 	"os"
@@ -218,10 +219,15 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool) {
 	return file, nextChunk, hasNext
 }
 
-func (fs *Files) GetAll() map[string]*File {
+func (fs *Files) GetJsonString() []byte {
 	fs.RLock()
 	defer fs.RUnlock()
-	return fs.files
+	jsonString, err := json.Marshal(fs.files)
+	if err != nil {
+		log.Println("Could not marshall Files")
+		return nil
+	}
+	return jsonString
 }
 
 func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile []byte) (*Chunk, bool) {

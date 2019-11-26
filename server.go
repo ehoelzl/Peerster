@@ -81,9 +81,8 @@ func (s *Server) GetNodeHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) GetFilesHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	messages := s.Gossiper.Files.GetAll()
+	jsonString := s.Gossiper.Files.GetJsonString()
 
-	jsonString, _ := json.Marshal(messages)
 	_, err := io.WriteString(w, string(jsonString))
 	if err != nil {
 		log.Fatal(err)
