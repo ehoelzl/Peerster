@@ -324,8 +324,7 @@ func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
 	if added := gp.SearchRequests.AddRequest(sr); !added { // Checks if duplicate requests within 500 ms
 		return
 	}
-	keywords := sr.Keywords
-	results, ok := gp.Files.SearchFiles(keywords)
+	results, ok := gp.Files.SearchFiles(sr.Keywords)
 	if ok { // Found matches => Send back reply
 		searchReply := &SearchReply{
 			Origin:      gp.Name,

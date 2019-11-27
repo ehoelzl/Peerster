@@ -13,6 +13,7 @@ type SearchRequests struct {
 }
 
 func (sr *SearchRequests) AddRequest(request *SearchRequest) bool {
+	/*Adds the given request to the Map, and deletes requests that are older than 500ms*/
 	sr.Lock()
 	defer sr.Unlock()
 
@@ -21,7 +22,7 @@ func (sr *SearchRequests) AddRequest(request *SearchRequest) bool {
 	duplicated := false
 
 	for t, req := range sr.requests {
-		if now-t < duplicateThreshold {
+		if now - t < duplicateThreshold {
 			if req.IsDuplicate(request) {
 				duplicated = true
 			}

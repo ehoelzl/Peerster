@@ -243,7 +243,7 @@ func (fs *Files) SearchFiles(keywords []string) ([]*SearchResult, bool) {
 	matches := make(map[string]bool)
 	var results []*SearchResult
 	for _, k := range keywords {
-		if k == "" { // Double check
+		if len(k) == 0 { // Double check
 			continue
 		}
 		for _, f := range fs.files {
