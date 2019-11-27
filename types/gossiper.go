@@ -300,6 +300,7 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 }
 
 func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
+	/*Handles a received SearchRequest*/
 	keywords := sr.Keywords
 	results, ok := gp.Files.SearchFiles(keywords)
 	if ok { // Found matches => Send back reply
@@ -315,7 +316,7 @@ func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
 	if sr.Budget <= 0 { // If budget is 0, do not continue
 		return
 	}
-	nodeBudgets := gp.Nodes.DistributeBudget(sr.Budget)
+	nodeBudgets := gp.Nodes.DistributeBudget(sr.Budget, from)
 	for addr, budg := range nodeBudgets {
 		request := &SearchRequest{
 			Origin:   sr.Origin,
@@ -323,6 +324,19 @@ func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
 			Keywords: keywords,
 		}
 		gp.SendPacket(&GossipPacket{SearchRequest: request}, addr)
+	}
+}
+
+func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
+	if sr.HopLimit <= 0{
+		return
+	}
+
+	if sr.Destination == gp.Name {
+		sr.Print()
+	} else {
+		sr.HopLimit -= 1
+		gp.SendToNextHop(&GossipPacket{SearchReply:sr}, sr.Destination)
 	}
 }
 

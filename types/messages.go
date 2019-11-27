@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"github.com/ehoelzl/Peerster/utils"
 	"net"
 	"strings"
 )
@@ -105,4 +106,14 @@ func (sp *StatusPacket) ToMap() map[string]uint32 {
 		statusMap[ps.Identifier] = ps.NextID
 	}
 	return statusMap
+}
+
+func (sr *SearchReply) Print() {
+	if sr.Results == nil {
+		return
+	}
+	for _, res := range sr.Results {
+		chunkString := strings.Trim(strings.Replace(fmt.Sprint(res.ChunkMap), " ", ",", -1), "[]")
+		fmt.Printf("FOUND match %v at %v metafile=%v chunks=%v\n", res.FileName, sr.Origin, utils.ToHex(res.MetafileHash), chunkString)
+	}
 }
