@@ -2,12 +2,12 @@ package types
 
 import (
 	"fmt"
+	"github.com/ehoelzl/Peerster/utils"
 	"log"
 	"math/rand"
 	"net"
 	"strings"
 	"sync"
-	"time"
 )
 
 type Node struct {
@@ -96,7 +96,7 @@ func (nodes *Nodes) StartTicker(address *net.UDPAddr, message *RumorMessage, cal
 		if node.ticker != nil {
 			node.ticker <- true // If other ticker running, kill it
 		}
-		node.ticker = newTimoutTicker(callback, 10) // Create a new ticker
+		node.ticker = utils.NewTimoutTicker(callback, 10) // Create a new ticker
 		node.lastSent = message
 	}
 }
@@ -166,22 +166,3 @@ func (nodes *Nodes) GetAll() []*net.UDPAddr {
 	return addresses
 }
 
-func newTimoutTicker(callback func(), seconds time.Duration) chan bool {
-	/*Creates a ticker that ticks only once and calls the callback function*/
-	ticker := time.NewTicker(seconds * time.Second)
-	stop := make(chan bool)
-	go func(tick *time.Ticker, stopChan chan bool) {
-		for {
-			select {
-			case <-stopChan:
-				tick.Stop()
-				return
-			case <-tick.C:
-				tick.Stop()
-				callback()
-				return
-			}
-		}
-	}(ticker, stop)
-	return stop
-}

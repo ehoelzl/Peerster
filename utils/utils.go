@@ -26,6 +26,7 @@ func CoinFlip() bool {
 }
 
 func NewTicker(callback func(), seconds time.Duration) chan bool {
+	/*Ticker used for AntiEntropy and Route rumors*/
 	stop := make(chan bool)
 	ticker := time.NewTicker(seconds * time.Second)
 
@@ -61,3 +62,22 @@ func CheckDataHash(data []byte, hashString string) bool {
 	return dataHashString == hashString
 }
 
+func NewTimoutTicker(callback func(), seconds time.Duration) chan bool {
+	/*Creates a ticker that ticks only once and calls the callback function*/
+	ticker := time.NewTicker(seconds * time.Second)
+	stop := make(chan bool)
+	go func(tick *time.Ticker, stopChan chan bool) {
+		for {
+			select {
+			case <-stopChan:
+				tick.Stop()
+				return
+			case <-tick.C:
+				tick.Stop()
+				callback()
+				return
+			}
+		}
+	}(ticker, stop)
+	return stop
+}

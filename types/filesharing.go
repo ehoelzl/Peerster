@@ -106,6 +106,7 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 }
 
 func (f *File) searchResult() *SearchResult {
+	/*Transforms a file into SearchResult*/
 	var chunkMap []uint64
 	for _, c := range f.Chunks {
 		if c.available {
@@ -242,11 +243,11 @@ func (fs *Files) SearchFiles(keywords []string) ([]*SearchResult, bool) {
 	matches := make(map[string]bool)
 	var results []*SearchResult
 	for _, k := range keywords {
-		if k == "" {
+		if k == "" { // Double check
 			continue
 		}
 		for _, f := range fs.files {
-			if _, ok := matches[f.Filename]; strings.Contains(f.Filename, k) && !ok { // Match for this name
+			if _, ok := matches[f.Filename]; !ok && strings.Contains(f.Filename, k) { // Match for this name
 				matches[f.Filename] = true
 				results = append(results, f.searchResult())
 			}
