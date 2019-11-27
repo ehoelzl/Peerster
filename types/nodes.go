@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Node struct {
@@ -76,7 +77,7 @@ func (nodes *Nodes) GetNRandom(except map[string]struct{}, n int) ([]*net.UDPAdd
 	if n > len(toKeep){
 		numNodes = len(toKeep)
 	}
-
+	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(toKeep), func(i, j int) { toKeep[i], toKeep[j] = toKeep[j], toKeep[i] })
 	selected := toKeep[:numNodes]
 	return selected, len(selected) > 0
@@ -148,9 +149,12 @@ func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr) (*RumorMessage, bool) {
 	return nil, false
 }
 
-func (nodes *Nodes) DistributeBudget(budget uint64) map[*net.UDPAddr]uint64 {
+func (nodes *Nodes) DistributeBudget(budget uint64, except *net.UDPAddr) map[*net.UDPAddr]uint64 {
 	/*Distributes evenly the Budget amongst known nodes*/
-	randomNodes, ok := nodes.GetNRandom(nil, int(budget)) // Get B random nodes at most
+	exceptMap := make(map[string]struct{})
+	exceptMap[except.String()] = struct{}{}
+
+	randomNodes, ok := nodes.GetNRandom(exceptMap, int(budget)) // Get B random nodes at most
 	if !ok { // Could not get random nodes
 		return nil
 	}

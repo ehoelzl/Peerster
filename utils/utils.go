@@ -22,6 +22,7 @@ func CheckFatalError(error error, msg string) {
 }
 
 func CoinFlip() bool {
+	rand.Seed(time.Now().UnixNano())
 	return rand.Int()%2 == 0
 }
 
