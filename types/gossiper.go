@@ -102,7 +102,7 @@ func (gp *Gossiper) HandleClientPrivateMessage(message *Message) {
 	/*Handles private messages*/
 	fmt.Printf("CLIENT MESSAGE %v dest %v\n", message.Text, *message.Destination)
 
-	if *message.Destination == gp.Name { // In case someone wants to play it smart TODO: remove this
+	if *message.Destination == gp.Name { // In case someone wants to play it smart
 		fmt.Printf("PRIVATE origin %v hop-limit %v contents %v\n", gp.Name, 10, message.Text)
 		return
 	}
@@ -113,12 +113,12 @@ func (gp *Gossiper) HandleClientPrivateMessage(message *Message) {
 		ID:          0,
 		Text:        message.Text,
 		Destination: *message.Destination,
-		HopLimit:    hopLimit - 1,
+		HopLimit:    hopLimit - 1, // Decrement HopLimit at source node
 	}
 
 	// Send only if we know the next Hop
 	if nextHop, ok := gp.Routing.GetNextHop(*message.Destination); ok {
-		gp.SendPacket(nil, nil, nil, pm, nil, nil, nextHop)
+		gp.SendPacket(&GossipPacket{Private: pm}, nextHop)
 	}
 
 }
@@ -231,11 +231,11 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 		fmt.Printf("IN SYNC WITH %v\n", from.String())
 		if flip := utils.CoinFlip(); isAck && flip { // Check if the StatusPacket is an ACK or if it's just due to AntiEntropy
 			except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
-			gp.StartRumormongering(lastRumor, except, true, false)   // TODO: check if need to timeout on coinflips
+			gp.StartRumormongering(lastRumor, except, true, false)
 		}
 	} else {
 		if isMissing { // Means they are missing a message
-			gp.SendPacket(nil, missingMessage, nil, nil, nil, nil, from) // Send back missing message
+			gp.SendPacket(&GossipPacket{Rumor: missingMessage}, from) // Send back missing message
 		} else if amMissing { // Means I am missing a message
 			gp.SendStatusMessage(from) // I have missing messages
 		}
@@ -253,17 +253,17 @@ func (gp *Gossiper) HandlePrivateMessage(from *net.UDPAddr, pm *PrivateMessage) 
 	} else {
 		if nextHop, ok := gp.Routing.GetNextHop(pm.Destination); ok {
 			pm.HopLimit -= 1
-			gp.SendPacket(nil, nil, nil, pm, nil, nil, nextHop)
+			gp.SendPacket(&GossipPacket{Private: pm}, nextHop)
 		}
 	}
 }
 
 func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 	/*Handles a DataRequest (forwards or processes)*/
-	if dr.HopLimit == 0 {
+	if dr.HopLimit <= 0 {
 		return
 	}
-	if dr.Destination == gp.Name {
+	if dr.Destination == gp.Name { // Request is for this Peerster
 		chunk := gp.Files.GetDataChunk(dr.HashValue) // Get the data chunk
 		reply := &DataReply{
 			Origin:      gp.Name,
@@ -273,23 +273,22 @@ func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 			Data:        chunk,
 		}
 
-		nextHop, ok := gp.Routing.GetNextHop(reply.Destination)
-		if !ok {
-			return
+		if nextHop, ok := gp.Routing.GetNextHop(reply.Destination); ok {
+			gp.SendPacket(&GossipPacket{DataReply: reply}, nextHop)
+
 		}
-		gp.SendPacket(nil, nil, nil, nil, nil, reply, nextHop)
 
 	} else {
 		if nextHop, ok := gp.Routing.GetNextHop(dr.Destination); ok {
 			dr.HopLimit -= 1
-			gp.SendPacket(nil, nil, nil, nil, dr, nil, nextHop)
+			gp.SendPacket(&GossipPacket{DataRequest: dr}, nextHop)
 		}
 	}
 }
 
 func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 	/*Handles a DataReply (forwards or processes)*/
-	if dr.HopLimit == 0 {
+	if dr.HopLimit <= 0 {
 		return
 	}
 	if dr.Destination == gp.Name {
@@ -308,16 +307,16 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 	} else {
 		if nextHop, ok := gp.Routing.GetNextHop(dr.Destination); ok {
 			dr.HopLimit -= 1
-			gp.SendPacket(nil, nil, nil, nil, nil, dr, nextHop)
+			gp.SendPacket(&GossipPacket{DataReply: dr}, nextHop)
 		}
 	}
 }
 
 /*-------------------- Methods used for transferring messages and broadcasting ------------------------------*/
 
-func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, status *StatusPacket, private *PrivateMessage, request *DataRequest, reply *DataReply, to *net.UDPAddr) {
+func (gp *Gossiper) SendPacket(packet *GossipPacket, to *net.UDPAddr) {
 	/*Constructs and sends a GossipPacket composed of the given arguments*/
-	gossipPacket, err := protobuf.Encode(&GossipPacket{Simple: simple, Rumor: rumor, Status: status, Private: private, DataRequest: request, DataReply: reply})
+	gossipPacket, err := protobuf.Encode(packet)
 	if err != nil {
 		log.Printf("Error encoding gossipPacket for %v\n", to.String())
 		return
@@ -332,15 +331,15 @@ func (gp *Gossiper) SendPacket(simple *SimpleMessage, rumor *RumorMessage, statu
 func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 	/*Sends the current status to the given node*/
 	statusPacket := gp.Rumors.GetStatusPacket()
-	gp.SendPacket(nil, nil, statusPacket, nil, nil, nil, to)
+	gp.SendPacket(&GossipPacket{Status: statusPacket}, to)
 }
 
-func (gp *Gossiper) SimpleBroadcast(packet *SimpleMessage, except *net.UDPAddr) {
+func (gp *Gossiper) SimpleBroadcast(message *SimpleMessage, except *net.UDPAddr) {
 	/*Broadcasts the SimpleMessage to all known nodes*/
 	nodeAddresses := gp.Nodes.GetAll()
 	for _, nodeAddr := range nodeAddresses {
 		if nodeAddr.String() != except.String() {
-			gp.SendPacket(packet, nil, nil, nil, nil, nil, nodeAddr)
+			gp.SendPacket(&GossipPacket{Simple: message}, nodeAddr)
 		}
 	}
 }
@@ -362,8 +361,8 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 	}
 	except[randomNode.String()] = struct{}{} // Add node we send to, to the except list
 
-	gp.SendPacket(nil, message, nil, nil, nil, nil, randomNode) // Send rumor
-	if withTimeout {                                            // Check if we need to add a timer
+	gp.SendPacket(&GossipPacket{Rumor: message}, randomNode) // Send rumor
+	if withTimeout {                                         // Check if we need to add a timer
 		callback := func() { // Callback if not times out
 			//fmt.Printf("Timeout on message %v sent to %v\n", message, randomNode)
 			go gp.StartRumormongering(message, except, false, true) // Monger with other node
@@ -389,7 +388,7 @@ func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *D
 		return
 	}
 	//First send packet
-	gp.SendPacket(nil, nil, nil, nil, request, nil, nextHop)
+	gp.SendPacket(&GossipPacket{DataRequest: request}, nextHop)
 
 	if utils.ToHex(metaHash) == utils.ToHex(request.HashValue) { // This is a MetaFile request
 		fmt.Printf("DOWNLOADING metafile of %v from %v\n", filename, destination)
