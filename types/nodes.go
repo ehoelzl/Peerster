@@ -152,7 +152,9 @@ func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr) (*RumorMessage, bool) {
 func (nodes *Nodes) DistributeBudget(budget uint64, except *net.UDPAddr) map[*net.UDPAddr]uint64 {
 	/*Distributes evenly the Budget amongst known nodes*/
 	exceptMap := make(map[string]struct{})
-	exceptMap[except.String()] = struct{}{}
+	if except != nil {
+		exceptMap[except.String()] = struct{}{}
+	}
 
 	randomNodes, ok := nodes.GetNRandom(exceptMap, int(budget)) // Get B random nodes at most
 	if !ok { // Could not get random nodes

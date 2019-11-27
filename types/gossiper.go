@@ -160,7 +160,18 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 }
 
 func (gp *Gossiper) HandleClientSearchRequest(message *Message) {
+	budget := *message.Budget
+	keywords := utils.ParseKeyWords(*message.Keywords)
+	if budget > 0 { // Specified Budget
+		request := &SearchRequest{
+			Origin:   gp.Name,
+			Budget:   budget,
+			Keywords: keywords,
+		}
+		gp.PropagateSearchRequest(request, nil)
+	} else { // Not Specified, do something else
 
+	}
 }
 /*---------------------------------- Gossip message handlers  ---------------------------------------------*/
 
@@ -325,15 +336,20 @@ func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
 		gp.SendToNextHop(&GossipPacket{SearchReply: searchReply}, sr.Origin)
 	}
 	sr.Budget -= 1
+	gp.PropagateSearchRequest(sr, from)
+}
+
+func (gp *Gossiper) PropagateSearchRequest(sr *SearchRequest, except *net.UDPAddr) {
+	/*Propagates the SearchRequest by Distributing it evenly*/
 	if sr.Budget <= 0 { // If budget is 0, do not continue
 		return
 	}
-	nodeBudgets := gp.Nodes.DistributeBudget(sr.Budget, from)
+	nodeBudgets := gp.Nodes.DistributeBudget(sr.Budget, except)
 	for addr, budg := range nodeBudgets {
 		request := &SearchRequest{
 			Origin:   sr.Origin,
 			Budget:   budg,
-			Keywords: keywords,
+			Keywords: sr.Keywords,
 		}
 		gp.SendPacket(&GossipPacket{SearchRequest: request}, addr)
 	}
@@ -375,6 +391,7 @@ func (gp *Gossiper) SendToNextHop(packet *GossipPacket, destination string) bool
 	}
 	return false
 }
+
 func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 	/*Sends the current status to the given node*/
 	statusPacket := gp.Rumors.GetStatusPacket()

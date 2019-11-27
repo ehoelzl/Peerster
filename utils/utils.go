@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -113,4 +114,15 @@ func StringSliceEqual(slice1 []string, slice2 []string) bool {
 		}
 	}
 	return true
+}
+
+func ParseKeyWords(words string) []string {
+	keywords := strings.Split(words, ",")
+	var filteredKeywords []string
+	for _, k := range keywords {
+		if len(k) > 0 {
+			filteredKeywords = append(filteredKeywords, k)
+		}
+	}
+	return filteredKeywords
 }
