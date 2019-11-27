@@ -116,11 +116,7 @@ func (gp *Gossiper) HandleClientPrivateMessage(message *Message) {
 		HopLimit:    hopLimit - 1, // Decrement HopLimit at source node
 	}
 
-	// Send only if we know the next Hop
-	if nextHop, ok := gp.Routing.GetNextHop(*message.Destination); ok {
-		gp.SendPacket(&GossipPacket{Private: pm}, nextHop)
-	}
-
+	gp.SendToNextHop(&GossipPacket{Private: pm}, *message.Destination)
 }
 
 func (gp *Gossiper) HandleClientRumorMessage(message *Message) {
@@ -193,6 +189,8 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 			gp.HandleDataRequest(from, dr)
 		} else if dr := packet.DataReply; dr != nil { // data reply
 			gp.HandleDataReply(from, dr)
+		} else if sr := packet.SearchRequest; sr != nil { // Search Request
+			gp.HandleSearchRequest(from, sr)
 		} else {
 			log.Printf("Empty packet from %v\n", from.String())
 			return
@@ -251,10 +249,8 @@ func (gp *Gossiper) HandlePrivateMessage(from *net.UDPAddr, pm *PrivateMessage) 
 		fmt.Printf("PRIVATE origin %v hop-limit %v contents %v\n", pm.Origin, pm.HopLimit, pm.Text)
 		gp.PrivateMessages = append(gp.PrivateMessages, pm)
 	} else {
-		if nextHop, ok := gp.Routing.GetNextHop(pm.Destination); ok {
-			pm.HopLimit -= 1
-			gp.SendPacket(&GossipPacket{Private: pm}, nextHop)
-		}
+		pm.HopLimit -= 1
+		gp.SendToNextHop(&GossipPacket{Private: pm}, pm.Destination)
 	}
 }
 
@@ -272,17 +268,10 @@ func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 			HashValue:   dr.HashValue,
 			Data:        chunk,
 		}
-
-		if nextHop, ok := gp.Routing.GetNextHop(reply.Destination); ok {
-			gp.SendPacket(&GossipPacket{DataReply: reply}, nextHop)
-
-		}
-
+		gp.SendToNextHop(&GossipPacket{DataReply: reply}, reply.Destination)
 	} else {
-		if nextHop, ok := gp.Routing.GetNextHop(dr.Destination); ok {
-			dr.HopLimit -= 1
-			gp.SendPacket(&GossipPacket{DataRequest: dr}, nextHop)
-		}
+		dr.HopLimit -= 1
+		gp.SendToNextHop(&GossipPacket{DataRequest: dr}, dr.Destination)
 	}
 }
 
@@ -305,10 +294,35 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 			fmt.Printf("RECONSTRUCTED file %v\n", file.Filename)
 		}
 	} else {
-		if nextHop, ok := gp.Routing.GetNextHop(dr.Destination); ok {
-			dr.HopLimit -= 1
-			gp.SendPacket(&GossipPacket{DataReply: dr}, nextHop)
+		dr.HopLimit -= 1
+		gp.SendToNextHop(&GossipPacket{DataReply: dr}, dr.Destination)
+	}
+}
+
+func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
+	keywords := sr.Keywords
+	results, ok := gp.Files.SearchFiles(keywords)
+	if ok { // Found matches => Send back reply
+		searchReply := &SearchReply{
+			Origin:      gp.Name,
+			Destination: sr.Origin,
+			HopLimit:    hopLimit - 1,
+			Results:     results,
 		}
+		gp.SendToNextHop(&GossipPacket{SearchReply: searchReply}, sr.Origin)
+	}
+	sr.Budget -= 1
+	if sr.Budget <= 0 { // If budget is 0, do not continue
+		return
+	}
+	nodeBudgets := gp.Nodes.DistributeBudget(sr.Budget)
+	for addr, budg := range nodeBudgets {
+		request := &SearchRequest{
+			Origin:   sr.Origin,
+			Budget:   budg,
+			Keywords: keywords,
+		}
+		gp.SendPacket(&GossipPacket{SearchRequest: request}, addr)
 	}
 }
 
@@ -328,6 +342,13 @@ func (gp *Gossiper) SendPacket(packet *GossipPacket, to *net.UDPAddr) {
 
 }
 
+func (gp *Gossiper) SendToNextHop(packet *GossipPacket, destination string) bool {
+	if nextHop, ok := gp.Routing.GetNextHop(destination); ok {
+		gp.SendPacket(packet, nextHop)
+		return ok
+	}
+	return false
+}
 func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 	/*Sends the current status to the given node*/
 	statusPacket := gp.Rumors.GetStatusPacket()
@@ -383,12 +404,9 @@ func (gp *Gossiper) SendRouteRumor() {
 /*-------------------- For File Sharing between gossipers ------------------------------*/
 
 func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *DataRequest, destination string, chunkId uint64) {
-	nextHop, ok := gp.Routing.GetNextHop(destination) // Check if nextHop available
-	if !ok {                                          // Cannot request from node that we don't know the path to
+	if sent := gp.SendToNextHop(&GossipPacket{DataRequest:request}, destination); !sent {
 		return
 	}
-	//First send packet
-	gp.SendPacket(&GossipPacket{DataRequest: request}, nextHop)
 
 	if utils.ToHex(metaHash) == utils.ToHex(request.HashValue) { // This is a MetaFile request
 		fmt.Printf("DOWNLOADING metafile of %v from %v\n", filename, destination)
