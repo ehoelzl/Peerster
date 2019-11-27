@@ -117,3 +117,7 @@ func (sr *SearchReply) Print() {
 		fmt.Printf("FOUND match %v at %v metafile=%v chunks=%v\n", res.FileName, sr.Origin, utils.ToHex(res.MetafileHash), chunkString)
 	}
 }
+
+func (sr *SearchRequest) IsDuplicate(other *SearchRequest) bool {
+	return (sr.Origin == other.Origin) && utils.StringSliceEqual(sr.Keywords, other.Keywords)
+}

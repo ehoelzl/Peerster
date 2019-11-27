@@ -82,3 +82,35 @@ func NewTimoutTicker(callback func(), seconds time.Duration) chan bool {
 	}(ticker, stop)
 	return stop
 }
+
+func stringSliceToMap(slice []string) map[string]struct{} {
+	newMap := make(map[string]struct{})
+	for _, k := range slice {
+		if k != "" {
+			newMap[k] = struct{}{}
+		}
+	}
+	return newMap
+}
+
+func StringSliceEqual(slice1 []string, slice2 []string) bool {
+
+	map1 := stringSliceToMap(slice1)
+	map2 := stringSliceToMap(slice2)
+
+	if len(map1) != len(map2) {
+		return false
+	}
+	for s, _ := range map1 {
+		if _, ok := map2[s]; !ok {
+			return false
+		}
+	}
+
+	for s, _ := range map2 {
+		if _, ok := map1[s]; !ok {
+			return false
+		}
+	}
+	return true
+}
