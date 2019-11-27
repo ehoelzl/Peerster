@@ -10,6 +10,8 @@ import (
 )
 
 var hopLimit uint32 = 10 // HopLimit for PrivateMessages and FileSharing
+var budgetLimit uint64 = 32
+var matchThreshold = 2
 
 // Gossiper Structure
 type Gossiper struct {
@@ -162,16 +164,28 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 
 func (gp *Gossiper) HandleClientSearchRequest(message *Message) {
 	budget := *message.Budget
-	keywords := utils.ParseKeyWords(*message.Keywords)
+
+	request := &SearchRequest{
+		Origin:   gp.Name,
+		Budget:   budget,
+		Keywords: utils.ParseKeyWords(*message.Keywords),
+	}
+
 	if budget > 0 { // Specified Budget
-		request := &SearchRequest{
-			Origin:   gp.Name,
-			Budget:   budget,
-			Keywords: keywords,
-		}
 		gp.PropagateSearchRequest(request, nil)
 	} else { // Not Specified, do something else
+		gp.InitiateSearch(request)
+	}
+}
 
+func (gp *Gossiper) InitiateSearch(request *SearchRequest) {
+	var budget uint64 = 2
+	for budget <= budgetLimit { // TODO : add condition for stopping when found matches
+		request.Budget = budget
+		gp.PropagateSearchRequest(request, nil)
+
+		time.Sleep(1 * time.Second) // Sleep one second
+		budget *= 2
 	}
 }
 
@@ -211,7 +225,7 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 		} else if sr := packet.SearchRequest; sr != nil { // Search Request
 			gp.HandleSearchRequest(from, sr)
 		} else if sr := packet.SearchReply; sr != nil {
-			gp.HandleSearchReply(from , sr)
+			gp.HandleSearchReply(from, sr)
 		} else {
 			log.Printf("Empty packet from %v\n", from.String())
 			return
