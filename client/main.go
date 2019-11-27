@@ -60,8 +60,7 @@ func main() {
 		}
 	}
 
-	message := Message{Text: *msg, Destination: dest, File: file, Request: &requestBytes}
-
+	message := Message{Text: *msg, Destination: dest, File: file, Request: &requestBytes, Keywords:keywords, Budget:budget}
 	packetBytes, err := protobuf.Encode(&message)
 
 	utils.CheckError(err, "Error encoding message")
