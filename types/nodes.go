@@ -57,8 +57,8 @@ func (nodes *Nodes) Add(address *net.UDPAddr) {
 	}
 }
 
-func (nodes *Nodes) GetRandom(except map[string]struct{}) (*net.UDPAddr, bool) {
-	/*Returns a random node from the list of nodes*/
+func (nodes *Nodes) GetNRandom(except map[string]struct{}, n int) ([]*net.UDPAddr, bool) {
+	/*Returns multiple random nodes from the list of nodes, without replacement*/
 	var toKeep []*net.UDPAddr
 	nodes.RLock()
 	for nodeAddr, node := range nodes.nodes {
@@ -71,8 +71,23 @@ func (nodes *Nodes) GetRandom(except map[string]struct{}) (*net.UDPAddr, bool) {
 	if len(toKeep) == 0 {
 		return nil, false
 	}
-	randInt := rand.Intn(len(toKeep)) // Choose random number
-	return toKeep[randInt], true
+	//randInt := rand.Intn(len(toKeep)) // Choose random number
+	numNodes := n
+	if n > len(toKeep){
+		numNodes = len(toKeep)
+	}
+
+	rand.Shuffle(len(toKeep), func(i, j int) { toKeep[i], toKeep[j] = toKeep[j], toKeep[i] })
+	selected := toKeep[:numNodes]
+	return selected, len(selected) > 0
+}
+
+func (nodes *Nodes) GetRandomNode(except map[string]struct{}) (*net.UDPAddr, bool) {
+	randomNode, ok := nodes.GetNRandom(except, 1)
+	if ok {
+		return randomNode[0], ok
+	}
+	return nil, false
 }
 
 func (nodes *Nodes) Print() {
@@ -135,16 +150,18 @@ func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr) (*RumorMessage, bool) {
 
 func (nodes *Nodes) DistributeBudget(budget uint64) map[*net.UDPAddr]uint64 {
 	/*Distributes evenly the Budget amongst known nodes*/
-	nodes.RLock()
-	defer nodes.RUnlock()
+	randomNodes, ok := nodes.GetNRandom(nil, int(budget)) // Get B random nodes at most
+	if !ok { // Could not get random nodes
+		return nil
+	}
 	nodeBudgets := make(map[*net.UDPAddr]uint64)
 
 	for budget > 0 {
-		for _, n := range nodes.nodes {
-			if _, ok := nodeBudgets[n.udpAddr]; ok {
-				nodeBudgets[n.udpAddr] += 1
+		for _, n := range randomNodes {
+			if _, ok := nodeBudgets[n]; ok {
+				nodeBudgets[n] += 1
 			} else {
-				nodeBudgets[n.udpAddr] = 1
+				nodeBudgets[n] = 1
 			}
 			budget -= 1
 			if budget <= 0 {
@@ -165,4 +182,3 @@ func (nodes *Nodes) GetAll() []*net.UDPAddr {
 	}
 	return addresses
 }
-

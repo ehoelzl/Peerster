@@ -57,7 +57,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 
 	// AntiEntropy timer
 	utils.NewTicker(func() {
-		randomNode, ok := gossiper.Nodes.GetRandom(nil)
+		randomNode, ok := gossiper.Nodes.GetRandomNode(nil)
 		if ok {
 			gossiper.SendStatusMessage(randomNode)
 		}
@@ -346,8 +346,8 @@ func (gp *Gossiper) SimpleBroadcast(message *SimpleMessage, except *net.UDPAddr)
 
 func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string]struct{}, coinFlip bool, withTimeout bool) {
 	/*Starts the RumorMongering process with the given message*/
-	randomNode, ok := gp.Nodes.GetRandom(except) // Pick random Node
-	if !ok {                                     // Check if could retrieve node
+	randomNode, ok := gp.Nodes.GetRandomNode(except) // Pick random Node
+	if !ok {                                         // Check if could retrieve node
 		return
 	}
 	if coinFlip {
