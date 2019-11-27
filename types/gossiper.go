@@ -96,6 +96,8 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 		} else { // file indexing
 			gp.Files.IndexNewFile(*message.File)
 		}
+	} else if message.Keywords != nil { // Search Request
+		gp.HandleClientSearchRequest(message)
 	}
 }
 
@@ -157,6 +159,9 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 	gp.SendDataRequest(metaHash, *message.File, metaRequest, *message.Destination, 0)
 }
 
+func (gp *Gossiper) HandleClientSearchRequest(message *Message) {
+
+}
 /*---------------------------------- Gossip message handlers  ---------------------------------------------*/
 
 func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
@@ -302,6 +307,9 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 
 func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
 	/*Handles a received SearchRequest*/
+	if sr.Origin == gp.Name { // Ignore requests That echoed back to me
+		return
+	}
 	if added := gp.SearchRequests.AddRequest(sr); !added { // Checks if duplicate requests within 500 ms
 		return
 	}

@@ -16,6 +16,8 @@ func main() {
 	msg := flag.String("msg", "", "message to be sent; if the -dest flag is present, this is a private message, otherwise it's a rumor message")
 	file := flag.String("file", "", "file to be indexed by the gossiper")
 	request := flag.String("request", "", "request a chunk or metafile of this hash")
+	budget := flag.Uint64("budget", 0, "budget for search request")
+	keywords := flag.String("keywords", "", "keywords for search request")
 	flag.Parse()
 
 	// Must specify UIPort
@@ -24,17 +26,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	if len(*msg) > 0 { // Either rumor message or private message
-		if len(*file) > 0 || len(*request) > 0 {
-			fmt.Println("ERROR (Bad argument combination)")
-			os.Exit(1)
-		}
-	} else if len(*file) > 0{ // Either file indexing or request
-		if (len(*dest) > 0 && len(*request) == 0) || (len(*dest) == 0 && len(*request) > 0) { // Checks if request arguments are okay
-			fmt.Println("ERROR (Bad argument combination)")
-			os.Exit(1)
-		}
-	} else {
+	isRumor := (len(*msg) > 0) && (len(*dest) == 0) && (len(*file) == 0) && (len(*request) == 0) && (len(*keywords) == 0) && (*budget == 0)
+	isPrivate := (len(*msg) > 0) && (len(*dest) > 0) && (len(*file) == 0) && (len(*request) == 0) && (len(*keywords) == 0) && (*budget == 0)
+	isFileIndex := (len(*msg) == 0) && (len(*dest) == 0) && (len(*file) > 0) && (len(*request) == 0) && (len(*keywords) == 0) && (*budget == 0)
+	isFileRequest := (len(*msg) == 0) && (len(*dest) > 0) && (len(*file) > 0) && (len(*request) > 0) && (len(*keywords) == 0) && (*budget == 0)
+	isSearchRequest := (len(*msg) == 0) && (len(*dest) == 0) && (len(*file) == 0) && (len(*request) == 0) && (len(*keywords) > 0)
+
+	validCombination := isRumor || isPrivate || isFileIndex || isFileRequest || isSearchRequest
+	if !validCombination {
 		fmt.Println("ERROR (Bad argument combination)")
 		os.Exit(1)
 	}
@@ -44,6 +43,10 @@ func main() {
 	}
 	if len(*file) == 0 {
 		file = nil
+	}
+
+	if len(*keywords) == 0 {
+		keywords = nil
 	}
 
 	var requestBytes []byte

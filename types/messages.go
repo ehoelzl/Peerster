@@ -13,7 +13,7 @@ type Message struct {
 	File        *string
 	Request     *[]byte
 	Budget      *uint64
-	Keywords    *[]string
+	Keywords    *string
 }
 
 type SimpleMessage struct {
