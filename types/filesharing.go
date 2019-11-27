@@ -6,6 +6,7 @@ import (
 	"github.com/ehoelzl/Peerster/utils"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -56,7 +57,7 @@ func (f *File) getChunkData(chunk *Chunk) []byte {
 	if !exists {
 		return nil
 	}
-	_, err := file.Seek(int64(chunk.index)*chunkSize, 0) // Seek to chunk index
+	_, err := file.Seek(int64(chunk.index-1)*chunkSize, 0) // Seek to chunk index
 	if err != nil {
 		return nil
 	}
@@ -113,7 +114,8 @@ func (f *File) searchResult() *SearchResult {
 			chunkMap = append(chunkMap, c.index)
 		}
 	}
-
+	sort.SliceStable(chunkMap, func (i, j int) bool {return chunkMap[i] < chunkMap[j]})
+	
 	chunkCount := len(f.Metafile) / hashSize
 	return &SearchResult{
 		FileName:     f.Filename,
@@ -289,7 +291,7 @@ func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile [
 	utils.CreateEmptyFile(filePath)
 
 	for _, chunk := range chunks {
-		if chunk.index == 0 {
+		if chunk.index == 1 {
 			return chunk, true
 		}
 	}
@@ -306,7 +308,7 @@ func parseMetaFile(file []byte) map[string]*Chunk {
 		chunkHashString := utils.ToHex(chunkHash)
 		chunks[chunkHashString] = &Chunk{
 			available: false,
-			index:     uint64(i),
+			index:     uint64(i+1),
 			Hash:      chunkHash,
 		}
 	}
@@ -318,7 +320,7 @@ func createMetaFile(file *os.File) ([]byte, map[string]*Chunk) {
 	chunks := make(map[string]*Chunk)
 	buffer := make([]byte, chunkSize)
 
-	var chunkIndex uint64 = 0
+	var chunkIndex uint64 = 1
 	var metaFile []byte
 
 	for n, err := file.Read(buffer); err == nil; {

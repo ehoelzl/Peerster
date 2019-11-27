@@ -458,7 +458,7 @@ func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *D
 	if utils.ToHex(metaHash) == utils.ToHex(request.HashValue) { // This is a MetaFile request
 		fmt.Printf("DOWNLOADING metafile of %v from %v\n", filename, destination)
 	} else { // This is a chunk request
-		fmt.Printf("DOWNLOADING %v chunk %v from %v\n", filename, chunkId+1, destination)
+		fmt.Printf("DOWNLOADING %v chunk %v from %v\n", filename, chunkId, destination)
 	}
 	//Register a request for this hash
 	callback := func() { gp.SendDataRequest(metaHash, filename, request, destination, chunkId) } // Callback for ticker
