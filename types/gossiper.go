@@ -24,6 +24,7 @@ type Gossiper struct {
 	Routing         *RoutingTable // Routing table
 	Files           *Files        // Files (shared and downloaded)
 	PrivateMessages []*PrivateMessage
+	SearchRequests  *SearchRequests
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int) (*Gossiper, bool) {
@@ -301,6 +302,9 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 
 func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
 	/*Handles a received SearchRequest*/
+	if added := gp.SearchRequests.AddRequest(sr); !added { // Checks if duplicate requests within 500 ms
+		return
+	}
 	keywords := sr.Keywords
 	results, ok := gp.Files.SearchFiles(keywords)
 	if ok { // Found matches => Send back reply
@@ -328,7 +332,7 @@ func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
 }
 
 func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
-	if sr.HopLimit <= 0{
+	if sr.HopLimit <= 0 {
 		return
 	}
 
@@ -336,7 +340,7 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 		sr.Print()
 	} else {
 		sr.HopLimit -= 1
-		gp.SendToNextHop(&GossipPacket{SearchReply:sr}, sr.Destination)
+		gp.SendToNextHop(&GossipPacket{SearchReply: sr}, sr.Destination)
 	}
 }
 
@@ -418,7 +422,7 @@ func (gp *Gossiper) SendRouteRumor() {
 /*-------------------- For File Sharing between gossipers ------------------------------*/
 
 func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *DataRequest, destination string, chunkId uint64) {
-	if sent := gp.SendToNextHop(&GossipPacket{DataRequest:request}, destination); !sent {
+	if sent := gp.SendToNextHop(&GossipPacket{DataRequest: request}, destination); !sent {
 		return
 	}
 
