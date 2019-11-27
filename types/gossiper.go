@@ -145,14 +145,19 @@ func (gp *Gossiper) HandleClientRumorMessage(message *Message) {
 
 func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 	/*Handles a file request done by the client*/
-	if gp.Files.IsIndexed(*message.Request) { // File already indexed
+	metaHash := *message.Request // Get the hash of
+
+	if gp.Files.IsIndexed(metaHash) { // File already indexed
 		return
 	}
-	// Check if nextHop available
-	if _, ok := gp.Routing.GetNextHop(*message.Destination); !ok {
-		return
+	// First request the MetaFile
+	metaRequest := &DataRequest{
+		Origin:      gp.Name,
+		Destination: *message.Destination,
+		HopLimit:    hopLimit - 1,
+		HashValue:   metaHash,
 	}
-	gp.StartFileDownload(message) // Sends a request for the metaFile
+	gp.SendDataRequest(metaHash, *message.File, metaRequest, *message.Destination, 0)
 }
 
 /*---------------------------------- Gossip message handlers  ---------------------------------------------*/
@@ -394,18 +399,5 @@ func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *D
 	//Register a request for this hash
 	callback := func() { gp.SendDataRequest(metaHash, filename, request, destination, chunkId) } // Callback for ticker
 	gp.Files.RegisterRequest(request.HashValue, metaHash, filename, callback)                    // Register a ticker for the given hash
-
-}
-
-func (gp *Gossiper) StartFileDownload(message *Message) {
-	metaHash := *message.Request // Get the hash of
-	// First request the MetaFile
-	metaRequest := &DataRequest{
-		Origin:      gp.Name,
-		Destination: *message.Destination,
-		HopLimit:    hopLimit - 1,
-		HashValue:   metaHash,
-	}
-	gp.SendDataRequest(metaHash, *message.File, metaRequest, *message.Destination, 0)
 
 }
