@@ -44,16 +44,17 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 	log.Printf("Starting gossiper %v\n UIAddress: %v\n GossipAddress %v\n Peers %v\n\n", name, clientAddr, gossipAddr, initialPeers)
 
 	gossiper := &Gossiper{
-		ClientAddress: clientAddr,
-		ClientConn:    clientConn,
-		GossipAddress: gossipAddr,
-		GossipConn:    gossipConn,
-		Name:          name,
-		IsSimple:      simple,
-		Nodes:         InitNodes(initialPeers),
-		Rumors:        InitRumorStruct(name),
-		Routing:       InitRoutingTable(),
-		Files:         InitFilesStruct(),
+		ClientAddress:  clientAddr,
+		ClientConn:     clientConn,
+		GossipAddress:  gossipAddr,
+		GossipConn:     gossipConn,
+		Name:           name,
+		IsSimple:       simple,
+		Nodes:          InitNodes(initialPeers),
+		Rumors:         InitRumorStruct(name),
+		Routing:        InitRoutingTable(),
+		Files:          InitFilesStruct(),
+		SearchRequests: InitSearchRequests(),
 	}
 
 	// AntiEntropy timer
@@ -173,6 +174,7 @@ func (gp *Gossiper) HandleClientSearchRequest(message *Message) {
 
 	}
 }
+
 /*---------------------------------- Gossip message handlers  ---------------------------------------------*/
 
 func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
@@ -208,6 +210,8 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 			gp.HandleDataReply(from, dr)
 		} else if sr := packet.SearchRequest; sr != nil { // Search Request
 			gp.HandleSearchRequest(from, sr)
+		} else if sr := packet.SearchReply; sr != nil {
+			gp.HandleSearchReply(from , sr)
 		} else {
 			log.Printf("Empty packet from %v\n", from.String())
 			return
@@ -326,6 +330,7 @@ func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
 	}
 	results, ok := gp.Files.SearchFiles(sr.Keywords)
 	if ok { // Found matches => Send back reply
+		fmt.Printf("Found File for %v\n", sr.Keywords)
 		searchReply := &SearchReply{
 			Origin:      gp.Name,
 			Destination: sr.Origin,

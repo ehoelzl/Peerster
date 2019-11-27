@@ -12,6 +12,13 @@ type SearchRequests struct {
 	sync.RWMutex
 }
 
+func InitSearchRequests() *SearchRequests {
+	sr := &SearchRequests{
+		requests: make(map[int64]*SearchRequest),
+	}
+	return sr
+}
+
 func (sr *SearchRequests) AddRequest(request *SearchRequest) bool {
 	/*Adds the given request to the Map, and deletes requests that are older than 500ms*/
 	sr.Lock()
@@ -22,7 +29,7 @@ func (sr *SearchRequests) AddRequest(request *SearchRequest) bool {
 	duplicated := false
 
 	for t, req := range sr.requests {
-		if now - t < duplicateThreshold {
+		if now-t < duplicateThreshold {
 			if req.IsDuplicate(request) {
 				duplicated = true
 			}
