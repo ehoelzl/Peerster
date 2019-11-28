@@ -126,3 +126,12 @@ func ParseKeyWords(words string) []string {
 	}
 	return filteredKeywords
 }
+
+func ChooseRandom(locations []string) (string, bool) {
+	n := len(locations)
+	if n <= 0 {
+		return "", false
+	}
+	index := rand.Intn(n)
+	return locations[index], true
+}
