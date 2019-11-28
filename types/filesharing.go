@@ -291,6 +291,9 @@ func (fs *Files) GetMetaFileLocations(request []byte) ([]string, bool) {
 
 func (fs *Files) SearchFiles(keywords []string) ([]*SearchResult, bool) {
 	/*Searches for files that contain the given keywords*/
+	fs.RLock()
+	defer fs.RUnlock()
+
 	matches := make(map[string]bool)
 	var results []*SearchResult
 	for _, k := range keywords {
