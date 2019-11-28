@@ -23,12 +23,14 @@ type Chunk struct {
 }
 
 type File struct {
-	Filename string
-	Path     string
-	Metafile []byte
-	Size     int64
-	Chunks   map[string]*Chunk
-	MetaHash []byte
+	Filename       string
+	Path           string
+	Metafile       []byte
+	Size           int64
+	Chunks         map[string]*Chunk
+	ChunkLocations map[uint64][]string
+	ChunkCount     uint64
+	MetaHash       []byte
 	sync.RWMutex
 }
 
@@ -107,7 +109,7 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 		nextIndex := chunk.index + 1
 		nextChunk, hasNextChunk := f.getUnavailableChunk(nextIndex) // Get next chunk
 
-		if !hasNextChunk {									// If all chunks have been downloaded, truncate at size
+		if !hasNextChunk { // If all chunks have been downloaded, truncate at size
 			if err := file.Truncate(f.Size); err != nil {
 				log.Println("Could not truncate file")
 			}
@@ -129,8 +131,8 @@ func (f *File) searchResult() *SearchResult {
 			chunkMap = append(chunkMap, c.index)
 		}
 	}
-	sort.SliceStable(chunkMap, func (i, j int) bool {return chunkMap[i] < chunkMap[j]})
-	
+	sort.SliceStable(chunkMap, func(i, j int) bool { return chunkMap[i] < chunkMap[j] })
+
 	chunkCount := len(f.Metafile) / hashSize
 	return &SearchResult{
 		FileName:     f.Filename,
@@ -244,7 +246,7 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool) {
 		}
 
 		if requested.metaHash == hashValueString { // This is a requested metaFile, need to create the file
-			nextChunk, hasNext = fs.createDownloadFile(requested.filename, dr.HashValue, dr.Data)
+			nextChunk, hasNext = fs.createDownloadFile(requested.filename, dr.HashValue, dr.Data, dr.Origin)
 		} else if file, ok := fs.files[requested.metaHash]; ok { // This is a requested chunk
 			nextChunk, hasNext = file.addChunk(dr.HashValue, dr.Data)
 		}
@@ -284,7 +286,7 @@ func (fs *Files) GetJsonString() []byte {
 	return jsonString
 }
 
-func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile []byte) (*Chunk, bool) {
+func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile []byte, origin string) (*Chunk, bool) {
 	/*Creates an empty File struct to start downloading, puts the Path as downloadedDir*/
 	hashString := utils.ToHex(metaHash)
 	if _, ok := fs.files[hashString]; ok { // Check if we don't have the file already
@@ -292,26 +294,25 @@ func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile [
 	}
 
 	chunks := parseMetaFile(metaFile) // Parse all the chunks
+	chunkLocations := createChunkLocations(chunks, origin)
 	filePath := utils.GetAbsolutePath(downloadedDir, filename)
 
 	newFile := &File{
-		Filename: filename,
-		Metafile: metaFile,
-		Path:     filePath,
-		Size:     0,
-		Chunks:   chunks,
-		MetaHash: metaHash,
+		Filename:       filename,
+		Metafile:       metaFile,
+		Path:           filePath,
+		Size:           0,
+		Chunks:         chunks,
+		ChunkCount:     uint64(len(chunks)),
+		ChunkLocations: chunkLocations,
+		MetaHash:       metaHash,
 	}
-	fs.files[hashString] = newFile
-	log.Println(int64(len(chunks)) * chunkSize)
-	utils.CreateEmptyFile(filePath, int64(len(chunks)) * chunkSize)
+	utils.CreateEmptyFile(filePath, int64(len(chunks))*chunkSize)
 
-	for _, chunk := range chunks {
-		if chunk.index == 1 {
-			return chunk, true
-		}
-	}
-	return nil, false
+	fs.files[hashString] = newFile
+
+	nextChunk, hasNext := newFile.getUnavailableChunk(1) // Get chunk at index 1
+	return nextChunk, hasNext
 }
 
 func parseMetaFile(file []byte) map[string]*Chunk {
@@ -324,11 +325,19 @@ func parseMetaFile(file []byte) map[string]*Chunk {
 		chunkHashString := utils.ToHex(chunkHash)
 		chunks[chunkHashString] = &Chunk{
 			available: false,
-			index:     uint64(i+1),
+			index:     uint64(i + 1),
 			Hash:      chunkHash,
 		}
 	}
 	return chunks
+}
+
+func createChunkLocations(chunks map[string]*Chunk, origin string) map[uint64][]string {
+	locations := make(map[uint64][]string)
+	for _, c := range chunks {
+		locations[c.index] = []string{origin}
+	}
+	return locations
 }
 
 func createMetaFile(file *os.File) ([]byte, map[string]*Chunk) {
