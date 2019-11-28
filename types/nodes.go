@@ -72,7 +72,7 @@ func (nodes *Nodes) GetNRandom(except map[string]struct{}, n int) ([]*net.UDPAdd
 	if len(toKeep) == 0 {
 		return nil, false
 	}
-	//randInt := rand.Intn(len(toKeep)) // Choose random number
+
 	numNodes := n
 	if n > len(toKeep){
 		numNodes = len(toKeep)
