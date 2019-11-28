@@ -149,9 +149,6 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 	/*Handles a file request done by the client*/
 	metaHash := *message.Request // Get the hash of
 
-/*	if gp.Files.IsIndexed(metaHash) { // File already indexed
-		return
-	}*/
 	// First request the MetaFile
 	metaRequest := &DataRequest{
 		Origin:      gp.Name,
@@ -330,7 +327,7 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 				HashValue:   nextChunk.Hash,
 			}
 			gp.SendDataRequest(file.MetaHash, file.Filename, chunkRequest, locations, nextChunk.index)
-		} else if file != nil {
+		} else if file != nil && file.IsDownloaded{
 			fmt.Printf("RECONSTRUCTED file %v\n", file.Filename)
 		}
 	} else {

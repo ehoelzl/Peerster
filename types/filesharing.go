@@ -28,8 +28,8 @@ type File struct {
 	metaFile       []byte
 	size           int64
 	chunks         map[string]*Chunk
-	chunkLocations map[uint64][]string
-	isDownloaded   bool
+	chunkLocations map[uint64]map[string]struct{}
+	IsDownloaded   bool
 	chunkCount     uint64
 	MetaHash       []byte
 	sync.RWMutex
@@ -114,7 +114,7 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 			if err := file.Truncate(f.size); err != nil {
 				log.Println("Could not truncate file")
 			}
-			f.isDownloaded = true // Mark file as complete
+			f.IsDownloaded = true // Mark file as complete
 		}
 		if err := file.Close(); err != nil { // Close the file
 			return nil, false
@@ -127,11 +127,11 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 
 func (f *File) updateChunkLocations(chunkMap []uint64, origin string) {
 	for _, chunkIndex := range chunkMap {
-		if cl, ok := f.chunkLocations[chunkIndex]; ok {
-			f.chunkLocations[chunkIndex] = append(cl, origin)
-		} else {
-			f.chunkLocations[chunkIndex] = []string{origin}
+		if _, ok := f.chunkLocations[chunkIndex]; !ok {
+			f.chunkLocations[chunkIndex] = make(map[string]struct{})
 		}
+		f.chunkLocations[chunkIndex][origin] = struct{}{}
+
 	}
 }
 
@@ -237,19 +237,31 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool, []string) {
 
 	var nextChunk *Chunk = nil
 	var file *File = nil
-	hasNext := false
 	var locations []string
+
+	hasNext := false
 	hashValueString := utils.ToHex(dr.HashValue) // Hex hash in reply
 
 	if requested, ok := fs.requestedChunks[hashValueString]; ok { // Was requested for this hash
 		requested.ticker <- true                          // stop the running ticker
 		defer delete(fs.requestedChunks, hashValueString) // Delete the requested chunks
 
-		if dr.Data == nil || !utils.CheckDataHash(dr.Data, hashValueString) { // Drop the packet if no Data
+		isMetaFile := requested.metaHash == hashValueString // Means that the reply is a MetaFile
+
+		if dr.Data == nil && !isMetaFile { // Empty data => the origin does not have the requested chunk, delete it
+			file := fs.files[requested.metaHash]
+			chunk := file.chunks[hashValueString]
+			if _, ok := file.chunkLocations[chunk.index][dr.Origin]; ok { // The origin is in the list of Locations for this chunk
+				delete(file.chunkLocations[chunk.index], dr.Origin)
+			}
+			return file, chunk, true, utils.MapToSlice(file.chunkLocations[chunk.index])
+		}
+
+		if !utils.CheckDataHash(dr.Data, hashValueString) { // Drop the packet if faulty data
 			return nil, nil, false, nil
 		}
 
-		if requested.metaHash == hashValueString { // This is a requested metaFile, need to create the file
+		if isMetaFile {
 			nextChunk, hasNext = fs.createDownloadFile(requested.filename, dr.HashValue, dr.Data, dr.Origin)
 		} else if file, ok := fs.files[requested.metaHash]; ok { // This is a requested chunk
 			nextChunk, hasNext = file.addChunk(dr.HashValue, dr.Data)
@@ -257,7 +269,7 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool, []string) {
 		file = fs.files[requested.metaHash]
 
 		if nextChunk != nil && hasNext {
-			locations = file.chunkLocations[nextChunk.index]
+			locations = utils.MapToSlice(file.chunkLocations[nextChunk.index])
 		}
 
 	}
@@ -273,7 +285,7 @@ func (fs *Files) GetMetaFileLocations(request []byte) ([]string, bool) {
 	if _, ok := fs.files[hash]; !ok {
 		return nil, false
 	}
-	locations := fs.files[hash].chunkLocations[1]
+	locations := utils.MapToSlice(fs.files[hash].chunkLocations[1])
 	return locations, locations != nil
 }
 
@@ -318,9 +330,9 @@ func (fs *Files) AddSearchResults(sr []*SearchResult, origin string) {
 		if f, ok := fs.files[metaFileHash]; ok { // File already exists
 			f.updateChunkLocations(res.ChunkMap, origin) // Update the locations of each chunk
 		} else {
-			locations := make(map[uint64][]string)
+			locations := make(map[uint64]map[string]struct{})
 			for _, i := range res.ChunkMap {
-				locations[i] = []string{origin}
+				locations[i] = map[string]struct{}{origin: struct{}{},}
 			}
 
 			file := &File{
@@ -331,6 +343,7 @@ func (fs *Files) AddSearchResults(sr []*SearchResult, origin string) {
 			fs.files[metaFileHash] = file
 		}
 	}
+
 }
 
 func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile []byte, origin string) (*Chunk, bool) {
@@ -344,7 +357,7 @@ func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile [
 	chunks := parseMetaFile(metaFile) // Parse all the chunks
 	filePath := utils.GetAbsolutePath(downloadedDir, filename)
 
-	if filePresent {
+	if filePresent { // Means file is indexed, and was found by Search
 		file.metaFile = metaFile
 		file.path = filePath
 		file.chunks = chunks
@@ -389,10 +402,10 @@ func parseMetaFile(file []byte) map[string]*Chunk {
 	return chunks
 }
 
-func createChunkLocations(chunks map[string]*Chunk, origin string) map[uint64][]string {
-	locations := make(map[uint64][]string)
+func createChunkLocations(chunks map[string]*Chunk, origin string) map[uint64]map[string]struct{} {
+	locations := make(map[uint64]map[string]struct{})
 	for _, c := range chunks {
-		locations[c.index] = []string{origin}
+		locations[c.index] = map[string]struct{}{origin: struct{}{},}
 	}
 	return locations
 }
