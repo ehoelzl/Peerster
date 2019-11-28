@@ -357,12 +357,12 @@ func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
 		}
 		gp.SendToNextHop(&GossipPacket{SearchReply: searchReply}, sr.Origin)
 	}
-	sr.Budget -= 1
 	gp.PropagateSearchRequest(sr, from)
 }
 
 func (gp *Gossiper) PropagateSearchRequest(sr *SearchRequest, except *net.UDPAddr) {
 	/*Propagates the SearchRequest by Distributing it evenly*/
+	sr.Budget -= 1
 	if sr.Budget <= 0 { // If budget is 0, do not continue
 		return
 	}
@@ -452,7 +452,6 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 	gp.SendPacket(&GossipPacket{Rumor: message}, randomNode) // Send rumor
 	if withTimeout {                                         // Check if we need to add a timer
 		callback := func() { // Callback if not times out
-			//fmt.Printf("Timeout on message %v sent to %v\n", message, randomNode)
 			go gp.StartRumormongering(message, except, false, true) // Monger with other node
 			gp.Nodes.DeleteTicker(randomNode)
 		}
@@ -477,17 +476,15 @@ func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *D
 	}
 	request.Destination = destination
 
-	if sent := gp.SendToNextHop(&GossipPacket{DataRequest: request}, destination); !sent {
-		return
-	}
+	callback := func() {
+		go gp.SendDataRequest(metaHash, filename, request, locations, chunkId) } // Callback for ticker
 
-	if utils.ToHex(metaHash) == utils.ToHex(request.HashValue) { // This is a MetaFile request
-		fmt.Printf("DOWNLOADING metafile of %v from %v\n", filename, destination)
-	} else { // This is a chunk request
-		fmt.Printf("DOWNLOADING %v chunk %v from %v\n", filename, chunkId, destination)
-	}
-	//Register a request for this hash
-	callback := func() { gp.SendDataRequest(metaHash, filename, request, locations, chunkId) } // Callback for ticker
 	gp.Files.RegisterRequest(request.HashValue, metaHash, filename, callback)                  // Register a ticker for the given hash
-
+	if sent := gp.SendToNextHop(&GossipPacket{DataRequest: request}, destination); sent {
+		if utils.ToHex(metaHash) == utils.ToHex(request.HashValue) { // This is a MetaFile request
+			fmt.Printf("DOWNLOADING metafile of %v from %v\n", filename, destination)
+		} else { // This is a chunk request
+			fmt.Printf("DOWNLOADING %v chunk %v from %v\n", filename, chunkId, destination)
+		}
+	}
 }

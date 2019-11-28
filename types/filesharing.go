@@ -219,6 +219,10 @@ func (fs *Files) RegisterRequest(chunkHash []byte, metaHash []byte, filename str
 	defer fs.Unlock()
 
 	chunkHashString := utils.ToHex(chunkHash)
+	if req, ok := fs.requestedChunks[chunkHashString]; ok {
+		req.ticker <- true
+		delete(fs.requestedChunks, chunkHashString)
+	}
 	metaHashString := utils.ToHex(metaHash)
 	ticker := utils.NewTicker(callback, 5) // Ticker for 5 seconds
 	requested := &requestedChunk{
