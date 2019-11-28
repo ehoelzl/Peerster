@@ -29,6 +29,7 @@ type File struct {
 	size           int64
 	chunks         map[string]*Chunk
 	chunkLocations map[uint64][]string
+	isDownloaded   bool
 	chunkCount     uint64
 	MetaHash       []byte
 	sync.RWMutex
@@ -113,6 +114,7 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 			if err := file.Truncate(f.size); err != nil {
 				log.Println("Could not truncate file")
 			}
+			f.isDownloaded = true // Mark file as complete
 		}
 		if err := file.Close(); err != nil { // Close the file
 			return nil, false
@@ -243,7 +245,7 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool, []string) {
 		defer delete(fs.requestedChunks, hashValueString) // Delete the requested chunks
 
 		if dr.Data == nil || !utils.CheckDataHash(dr.Data, hashValueString) { // Drop the packet if no Data
-			return nil, nil, false, locations
+			return nil, nil, false, nil
 		}
 
 		if requested.metaHash == hashValueString { // This is a requested metaFile, need to create the file
@@ -294,7 +296,7 @@ func (fs *Files) GetJsonString() []byte {
 func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile []byte, origin string) (*Chunk, bool) {
 	/*Creates an empty File struct to start downloading, puts the path as downloadedDir*/
 	hashString := utils.ToHex(metaHash)
-	if _, ok := fs.files[hashString]; ok { // Check if we don't have the file already
+	if _, ok := fs.files[hashString]; ok { // Check if we don't have the file already TODO: change behaviour
 		return nil, false
 	}
 

@@ -155,11 +155,11 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 	// First request the MetaFile
 	metaRequest := &DataRequest{
 		Origin:      gp.Name,
-		Destination: *message.Destination,
 		HopLimit:    hopLimit - 1,
 		HashValue:   metaHash,
 	}
-	gp.SendDataRequest(metaHash, *message.File, metaRequest, *message.Destination, 0)
+	locations := []string{*message.Destination} // Force locations to be the one for now
+	gp.SendDataRequest(metaHash, *message.File, metaRequest, locations, 0)
 }
 
 func (gp *Gossiper) HandleClientSearchRequest(message *Message) {
@@ -316,15 +316,14 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 		return
 	}
 	if dr.Destination == gp.Name {
-		file, nextChunk, hasNext := gp.Files.ParseDataReply(dr)
+		file, nextChunk, hasNext, locations := gp.Files.ParseDataReply(dr)
 		if hasNext {
 			chunkRequest := &DataRequest{
 				Origin:      gp.Name,
-				Destination: dr.Origin,
 				HopLimit:    hopLimit - 1,
 				HashValue:   nextChunk.Hash,
 			}
-			gp.SendDataRequest(file.MetaHash, file.Filename, chunkRequest, dr.Origin, nextChunk.index)
+			gp.SendDataRequest(file.MetaHash, file.Filename, chunkRequest, locations, nextChunk.index)
 		} else if file != nil {
 			fmt.Printf("RECONSTRUCTED file %v\n", file.Filename)
 		}
@@ -464,7 +463,13 @@ func (gp *Gossiper) SendRouteRumor() {
 
 /*-------------------- For File Sharing between gossipers ------------------------------*/
 
-func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *DataRequest, destination string, chunkId uint64) {
+func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *DataRequest, locations []string, chunkId uint64) {
+	destination, found := utils.ChooseRandom(locations)
+	if !found {
+		return
+	}
+	request.Destination = destination
+
 	if sent := gp.SendToNextHop(&GossipPacket{DataRequest: request}, destination); !sent {
 		return
 	}
@@ -475,7 +480,7 @@ func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *D
 		fmt.Printf("DOWNLOADING %v chunk %v from %v\n", filename, chunkId, destination)
 	}
 	//Register a request for this hash
-	callback := func() { gp.SendDataRequest(metaHash, filename, request, destination, chunkId) } // Callback for ticker
+	callback := func() { gp.SendDataRequest(metaHash, filename, request, locations, chunkId) } // Callback for ticker
 	gp.Files.RegisterRequest(request.HashValue, metaHash, filename, callback)                    // Register a ticker for the given hash
 
 }

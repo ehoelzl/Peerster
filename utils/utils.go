@@ -132,6 +132,7 @@ func ChooseRandom(locations []string) (string, bool) {
 	if n <= 0 {
 		return "", false
 	}
+	rand.Seed(time.Now().UnixNano())
 	index := rand.Intn(n)
 	return locations[index], true
 }
