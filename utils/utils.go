@@ -127,6 +127,14 @@ func ParseKeyWords(words string) []string {
 	return filteredKeywords
 }
 
+func MapToSlice(m map[string]struct{}) []string {
+	var ret []string
+	for k, _ := range m {
+		ret = append(ret, k)
+	}
+	return ret
+}
+
 func ChooseRandom(locations []string) (string, bool) {
 	n := len(locations)
 	if n <= 0 {
