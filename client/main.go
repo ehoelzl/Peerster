@@ -29,7 +29,7 @@ func main() {
 	isRumor := (len(*msg) > 0) && (len(*dest) == 0) && (len(*file) == 0) && (len(*request) == 0) && (len(*keywords) == 0) && (*budget == 0)
 	isPrivate := (len(*msg) > 0) && (len(*dest) > 0) && (len(*file) == 0) && (len(*request) == 0) && (len(*keywords) == 0) && (*budget == 0)
 	isFileIndex := (len(*msg) == 0) && (len(*dest) == 0) && (len(*file) > 0) && (len(*request) == 0) && (len(*keywords) == 0) && (*budget == 0)
-	isFileRequest := (len(*msg) == 0) && (len(*dest) > 0) && (len(*file) > 0) && (len(*request) > 0) && (len(*keywords) == 0) && (*budget == 0)
+	isFileRequest := (len(*msg) == 0) && (len(*file) > 0) && (len(*request) > 0) && (len(*keywords) == 0) && (*budget == 0)
 	isSearchRequest := (len(*msg) == 0) && (len(*dest) == 0) && (len(*file) == 0) && (len(*request) == 0) && (len(*keywords) > 0)
 
 	validCombination := isRumor || isPrivate || isFileIndex || isFileRequest || isSearchRequest
@@ -60,7 +60,7 @@ func main() {
 		}
 	}
 
-	message := Message{Text: *msg, Destination: dest, File: file, Request: &requestBytes, Keywords:keywords, Budget:budget}
+	message := Message{Text: *msg, Destination: dest, File: file, Request: &requestBytes, Keywords: keywords, Budget: budget}
 	packetBytes, err := protobuf.Encode(&message)
 
 	utils.CheckError(err, "Error encoding message")

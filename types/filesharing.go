@@ -125,6 +125,16 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 	return nil, false
 }
 
+func (f *File) updateChunkLocations(chunkMap []uint64, origin string) {
+	for _, chunkIndex := range chunkMap {
+		if cl, ok := f.chunkLocations[chunkIndex]; ok {
+			f.chunkLocations[chunkIndex] = append(cl, origin)
+		} else {
+			f.chunkLocations[chunkIndex] = []string{origin}
+		}
+	}
+}
+
 func (f *File) searchResult() *SearchResult {
 	/*Transforms a file into SearchResult*/
 	var chunkMap []uint64
@@ -182,15 +192,6 @@ func (fs *Files) IndexNewFile(filename string) bool {
 	log.Printf("File %v indexed\n", hashString)
 	return true
 
-}
-
-func (fs *Files) IsIndexed(hash []byte) bool {
-	/*Checks if a hash is already indexed in the structure*/
-	fs.RLock()
-	defer fs.RUnlock()
-	hashString := utils.ToHex(hash)
-	_, ok := fs.files[hashString]
-	return ok
 }
 
 func (fs *Files) GetDataChunk(hash []byte) []byte {
@@ -264,6 +265,18 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool, []string) {
 	return file, nextChunk, hasNext, locations
 }
 
+func (fs *Files) GetMetaFileLocations(request []byte) ([]string, bool) {
+	/*Returns all the possible locations for the MetaFile (any Node with chunk number 1)*/
+	fs.RLock()
+	defer fs.RUnlock()
+	hash := utils.ToHex(request)
+	if _, ok := fs.files[hash]; !ok {
+		return nil, false
+	}
+	locations := fs.files[hash].chunkLocations[1]
+	return locations, locations != nil
+}
+
 func (fs *Files) SearchFiles(keywords []string) ([]*SearchResult, bool) {
 	/*Searches for files that contain the given keywords*/
 	matches := make(map[string]bool)
@@ -293,32 +306,69 @@ func (fs *Files) GetJsonString() []byte {
 	return jsonString
 }
 
+func (fs *Files) AddSearchResults(sr []*SearchResult, origin string) {
+	if sr == nil || len(sr) == 0 {
+		return
+	}
+	fs.Lock()
+	defer fs.Unlock()
+
+	for _, res := range sr {
+		metaFileHash := utils.ToHex(res.MetafileHash)
+		if f, ok := fs.files[metaFileHash]; ok { // File already exists
+			f.updateChunkLocations(res.ChunkMap, origin) // Update the locations of each chunk
+		} else {
+			locations := make(map[uint64][]string)
+			for _, i := range res.ChunkMap {
+				locations[i] = []string{origin}
+			}
+
+			file := &File{
+				chunkLocations: locations,
+				chunkCount:     res.ChunkCount,
+				MetaHash:       res.MetafileHash,
+			}
+			fs.files[metaFileHash] = file
+		}
+	}
+}
+
 func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile []byte, origin string) (*Chunk, bool) {
 	/*Creates an empty File struct to start downloading, puts the path as downloadedDir*/
 	hashString := utils.ToHex(metaHash)
-	if _, ok := fs.files[hashString]; ok { // Check if we don't have the file already TODO: change behaviour
+	file, filePresent := fs.files[hashString]
+	if filePresent && file.metaFile != nil { // Check if we don't have the file already
 		return nil, false
 	}
 
 	chunks := parseMetaFile(metaFile) // Parse all the chunks
-	chunkLocations := createChunkLocations(chunks, origin)
 	filePath := utils.GetAbsolutePath(downloadedDir, filename)
 
-	newFile := &File{
-		Filename:       filename,
-		metaFile:       metaFile,
-		path:           filePath,
-		size:           0,
-		chunks:         chunks,
-		chunkCount:     uint64(len(chunks)),
-		chunkLocations: chunkLocations,
-		MetaHash:       metaHash,
+	if filePresent {
+		file.metaFile = metaFile
+		file.path = filePath
+		file.chunks = chunks
+		file.Filename = filename
+	} else {
+		chunkLocations := createChunkLocations(chunks, origin)
+
+		newFile := &File{
+			Filename:       filename,
+			metaFile:       metaFile,
+			path:           filePath,
+			size:           0,
+			chunks:         chunks,
+			chunkCount:     uint64(len(chunks)),
+			chunkLocations: chunkLocations,
+			MetaHash:       metaHash,
+		}
+		fs.files[hashString] = newFile
+		file = newFile
 	}
+
 	utils.CreateEmptyFile(filePath, int64(len(chunks))*chunkSize)
 
-	fs.files[hashString] = newFile
-
-	nextChunk, hasNext := newFile.getUnavailableChunk(1) // Get chunk at index 1
+	nextChunk, hasNext := file.getUnavailableChunk(1) // Get chunk at index 1
 	return nextChunk, hasNext
 }
 

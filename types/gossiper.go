@@ -94,7 +94,7 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 			gp.HandleClientRumorMessage(message)
 		}
 	} else if message.File != nil { // File indexing or request
-		if message.Request != nil && message.Destination != nil { // Request message
+		if len(*message.Request) > 0 { // Request message
 			gp.HandleClientFileRequest(message)
 		} else { // file indexing
 			gp.Files.IndexNewFile(*message.File)
@@ -149,16 +149,22 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 	/*Handles a file request done by the client*/
 	metaHash := *message.Request // Get the hash of
 
-	if gp.Files.IsIndexed(metaHash) { // File already indexed
+/*	if gp.Files.IsIndexed(metaHash) { // File already indexed
 		return
-	}
+	}*/
 	// First request the MetaFile
 	metaRequest := &DataRequest{
 		Origin:      gp.Name,
 		HopLimit:    hopLimit - 1,
 		HashValue:   metaHash,
 	}
-	locations := []string{*message.Destination} // Force locations to be the one for now
+	var locations []string
+	if message.Destination != nil {
+		locations = []string{*message.Destination} // Force locations to be the one for now
+	} else {
+		locations, _ = gp.Files.GetMetaFileLocations(metaHash)
+		fmt.Println(locations)
+	}
 	gp.SendDataRequest(metaHash, *message.File, metaRequest, locations, 0)
 }
 
@@ -343,7 +349,6 @@ func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
 	}
 	results, ok := gp.Files.SearchFiles(sr.Keywords)
 	if ok { // Found matches => Send back reply
-		fmt.Printf("Found File for %v\n", sr.Keywords)
 		searchReply := &SearchReply{
 			Origin:      gp.Name,
 			Destination: sr.Origin,
@@ -379,6 +384,7 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 
 	if sr.Destination == gp.Name {
 		sr.Print()
+		gp.Files.AddSearchResults(sr.Results, sr.Origin)
 	} else {
 		sr.HopLimit -= 1
 		gp.SendToNextHop(&GossipPacket{SearchReply: sr}, sr.Destination)
