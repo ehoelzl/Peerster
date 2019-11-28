@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/ehoelzl/Peerster/utils"
 	"sync"
 	"time"
 )
@@ -45,4 +46,47 @@ func (sr *SearchRequests) AddRequest(request *SearchRequest) bool {
 		sr.requests[now] = request
 	}
 	return !duplicated
+}
+
+type FullMatches struct {
+	matches map[string][]string
+	sync.RWMutex
+}
+
+func InitFullMatches() *FullMatches {
+	return &FullMatches{
+		matches: make(map[string][]string),
+	}
+}
+
+func (fm *FullMatches) Add(sr []*SearchResult, origin string) {
+	fm.Lock()
+	defer fm.Unlock()
+	for _, s := range sr {
+		hash := utils.ToHex(s.MetafileHash)
+		if uint64(len(s.ChunkMap)) == s.ChunkCount { // Full match
+			fm.matches[hash] = append(fm.matches[hash], origin)
+		}
+	}
+}
+
+func (fm *FullMatches) Reset() {
+	fm.Lock()
+	defer fm.Unlock()
+	fm.matches = make(map[string][]string)
+}
+
+func (fm *FullMatches) AboveThreshold(threshold int) bool {
+	fm.RLock()
+	defer fm.RUnlock()
+	if len(fm.matches) >= threshold {
+		return true
+	}
+
+	for _, m := range fm.matches {
+		if len(m) >= threshold {
+			return true
+		}
+	}
+	return false
 }

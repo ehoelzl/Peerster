@@ -27,6 +27,7 @@ type Gossiper struct {
 	Files           *Files        // Files (shared and downloaded)
 	PrivateMessages []*PrivateMessage
 	SearchRequests  *SearchRequests
+	FullMatches     *FullMatches
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int) (*Gossiper, bool) {
@@ -57,6 +58,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		Routing:        InitRoutingTable(),
 		Files:          InitFilesStruct(),
 		SearchRequests: InitSearchRequests(),
+		FullMatches:    InitFullMatches(),
 	}
 
 	// AntiEntropy timer
@@ -151,16 +153,15 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 
 	// First request the MetaFile
 	metaRequest := &DataRequest{
-		Origin:      gp.Name,
-		HopLimit:    hopLimit - 1,
-		HashValue:   metaHash,
+		Origin:    gp.Name,
+		HopLimit:  hopLimit - 1,
+		HashValue: metaHash,
 	}
 	var locations []string
 	if message.Destination != nil {
 		locations = []string{*message.Destination} // Force locations to be the one for now
 	} else {
 		locations, _ = gp.Files.GetMetaFileLocations(metaHash)
-		fmt.Println(locations)
 	}
 	gp.SendDataRequest(metaHash, *message.File, metaRequest, locations, 0)
 }
@@ -183,13 +184,15 @@ func (gp *Gossiper) HandleClientSearchRequest(message *Message) {
 
 func (gp *Gossiper) InitiateSearch(request *SearchRequest) {
 	var budget uint64 = 2
-	for budget <= budgetLimit { // TODO : add condition for stopping when found matches
+	gp.FullMatches.Reset()
+	for budget <= budgetLimit && !gp.FullMatches.AboveThreshold(matchThreshold) {
 		request.Budget = budget
 		gp.PropagateSearchRequest(request, nil)
 
 		time.Sleep(1 * time.Second) // Sleep one second
 		budget *= 2
 	}
+	fmt.Printf("Stopped searching budget=%v\n", budget)
 }
 
 /*---------------------------------- Gossip message handlers  ---------------------------------------------*/
@@ -322,12 +325,12 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 		file, nextChunk, hasNext, locations := gp.Files.ParseDataReply(dr)
 		if hasNext {
 			chunkRequest := &DataRequest{
-				Origin:      gp.Name,
-				HopLimit:    hopLimit - 1,
-				HashValue:   nextChunk.Hash,
+				Origin:    gp.Name,
+				HopLimit:  hopLimit - 1,
+				HashValue: nextChunk.Hash,
 			}
 			gp.SendDataRequest(file.MetaHash, file.Filename, chunkRequest, locations, nextChunk.index)
-		} else if file != nil && file.IsDownloaded{
+		} else if file != nil && file.IsDownloaded {
 			fmt.Printf("RECONSTRUCTED file %v\n", file.Filename)
 		}
 	} else {
@@ -381,6 +384,7 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 
 	if sr.Destination == gp.Name {
 		sr.Print()
+		gp.FullMatches.Add(sr.Results, sr.Origin)
 		gp.Files.AddSearchResults(sr.Results, sr.Origin)
 	} else {
 		sr.HopLimit -= 1
@@ -484,6 +488,6 @@ func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *D
 	}
 	//Register a request for this hash
 	callback := func() { gp.SendDataRequest(metaHash, filename, request, locations, chunkId) } // Callback for ticker
-	gp.Files.RegisterRequest(request.HashValue, metaHash, filename, callback)                    // Register a ticker for the given hash
+	gp.Files.RegisterRequest(request.HashValue, metaHash, filename, callback)                  // Register a ticker for the given hash
 
 }
