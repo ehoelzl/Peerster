@@ -49,13 +49,13 @@ func (sr *SearchRequests) AddRequest(request *SearchRequest) bool {
 }
 
 type FullMatches struct {
-	matches map[string][]string
+	matches map[string]map[string]struct{}
 	sync.RWMutex
 }
 
 func InitFullMatches() *FullMatches {
 	return &FullMatches{
-		matches: make(map[string][]string),
+		matches: make(map[string]map[string]struct{}),
 	}
 }
 
@@ -65,7 +65,11 @@ func (fm *FullMatches) Add(sr []*SearchResult, origin string) {
 	for _, s := range sr {
 		hash := utils.ToHex(s.MetafileHash)
 		if uint64(len(s.ChunkMap)) == s.ChunkCount { // Full match
-			fm.matches[hash] = append(fm.matches[hash], origin)
+			if _, ok := fm.matches[hash]; ok {
+				fm.matches[hash][origin] = struct{}{}
+			} else {
+				fm.matches[hash] = map[string]struct{}{origin: struct{}{}}
+			}
 		}
 	}
 }
@@ -73,7 +77,7 @@ func (fm *FullMatches) Add(sr []*SearchResult, origin string) {
 func (fm *FullMatches) Reset() {
 	fm.Lock()
 	defer fm.Unlock()
-	fm.matches = make(map[string][]string)
+	fm.matches = make(map[string]map[string]struct{})
 }
 
 func (fm *FullMatches) AboveThreshold(threshold int) bool {
