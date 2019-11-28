@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 )
@@ -20,24 +21,28 @@ func CheckAndOpenRead(filePath string) (bool, *os.File, int64) {
 	return !info.IsDir(), f, info.Size()
 }
 
-func CheckAndOpenWrite(filePath string) (bool, *os.File) {
-	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, os.ModeAppend) // Open file
+func CheckAndOpenWrite(filePath string) (*os.File, bool) {
+	f, err := os.OpenFile(filePath, os.O_WRONLY, os.ModeAppend) // Open file
 
 	if os.IsNotExist(err) { // Check existence
-		return false, nil
+		return nil, false
 	}
 	info, err := f.Stat()
 
 	if err != nil {
-		return false, nil
+		return nil, false
 	}
-
-	return !info.IsDir(), f
+	return f, !info.IsDir()
 }
 
-func CreateEmptyFile(filePath string) {
-	if _, err := os.Create(filePath); err != nil {
-		return
+func CreateEmptyFile(filePath string, size int64) {
+	if f, err := os.Create(filePath); err == nil {
+		if err = f.Truncate(size); err != nil {
+			log.Printf("Could not create file %v of size %v\n", filePath, size)
+		}
+		if err := f.Close(); err != nil {
+			log.Printf("Could not create file %v of size %v\n", filePath, size)
+		}
 	}
 }
 
