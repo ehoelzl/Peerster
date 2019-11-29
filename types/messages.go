@@ -80,6 +80,17 @@ type SearchResult struct {
 	ChunkCount   uint64
 }
 
+type TxPublish struct {
+	Name         string
+	Size         int64
+	MetaFileHash []byte
+}
+
+type BlockPublish struct {
+	PrevHash    [32]byte
+	Transaction TxPublish
+}
+
 type GossipPacket struct {
 	Simple        *SimpleMessage
 	Rumor         *RumorMessage

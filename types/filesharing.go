@@ -259,7 +259,6 @@ func (fs *Files) RegisterRequest(chunkHash []byte, metaHash []byte, filename str
 
 func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool, []string) {
 	/*Parses a reply coming for a requested document. Returns a (*Chunk, bool) to indicate the next chunk*/
-	// First check if data is not empty, if empty discard
 	fs.Lock()
 	defer fs.Unlock()
 
