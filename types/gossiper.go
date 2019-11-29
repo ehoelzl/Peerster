@@ -99,7 +99,7 @@ func (gp *Gossiper) HandleClientMessage(packetBytes []byte) {
 		if len(*message.Request) > 0 { // Request message
 			gp.HandleClientFileRequest(message)
 		} else { // file indexing
-			gp.Files.IndexNewFile(*message.File)
+			gp.HandleFileIndexing(message)
 		}
 	} else if message.Keywords != nil { // Search Request
 		gp.HandleClientSearchRequest(message)
@@ -137,7 +137,7 @@ func (gp *Gossiper) HandleClientRumorMessage(message *Message) {
 			RelayPeerAddr: gp.GossipAddress.String(),
 			Contents:      message.Text,
 		}
-		gp.SimpleBroadcast(simpleMessage, nil)
+		gp.Broadcast(&GossipPacket{Simple:simpleMessage}, nil)
 	} else { // Rumor case
 		rumorMessage := gp.Rumors.CreateNewRumor(gp.Name, message.Text) // Create new rumor
 		messageAdded := gp.Rumors.AddRumorMessage(rumorMessage)         // Add it to list
@@ -147,6 +147,13 @@ func (gp *Gossiper) HandleClientRumorMessage(message *Message) {
 	}
 }
 
+func (gp *Gossiper) HandleFileIndexing(message *Message) {
+	_, indexed := gp.Files.IndexNewFile(*message.File)
+	if !indexed {
+		return
+	}
+	// Create function that does the TLCMessage (unconfirmed, and start timer that stops when
+}
 func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 	/*Handles a file request done by the client*/
 	metaHash := *message.Request // Get the hash of
@@ -222,7 +229,7 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 		gp.Nodes.Print()
 
 		packet.Simple.RelayPeerAddr = gp.GossipAddress.String()
-		gp.SimpleBroadcast(packet.Simple, from)
+		gp.Broadcast(&GossipPacket{Simple:packet.Simple}, from)
 	} else {                                     // Rumor/Private/File
 		if rumor := packet.Rumor; rumor != nil { // RumorMessage
 			gp.HandleRumorMessage(from, rumor)
@@ -238,6 +245,10 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 			gp.HandleSearchRequest(from, sr)
 		} else if sr := packet.SearchReply; sr != nil {
 			gp.HandleSearchReply(from, sr)
+		} else if tlc := packet.TLCMessage; tlc != nil {
+			gp.HandleTLCMessage(from, tlc)
+		} else if ack := packet.Ack; ack != nil {
+			gp.HandleTLCAck(from, ack)
 		} else {
 			log.Printf("Empty packet from %v\n", from.String())
 			return
@@ -398,6 +409,24 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 	}
 }
 
+func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
+	// Store TLC if new
+	// Check if valid (always valid for ex2
+	// Acknowledge if stored and valid
+}
+
+func (gp *Gossiper) HandleTLCAck(from *net.UDPAddr, ack *TLCAck) {
+	if ack.HopLimit <= 0 {
+		return
+	}
+	if ack.Destination == gp.Name {
+		// Add ack to corresponding TLC Message
+		// If majority reached, send TLC again, with corresponding Fields
+	} else {
+		ack.HopLimit -= 1
+		gp.SendToNextHop(&GossipPacket{Ack:ack}, ack.Destination)
+	}
+}
 /*-------------------- Methods used for transferring messages and broadcasting ------------------------------*/
 
 func (gp *Gossiper) SendPacket(packet *GossipPacket, to *net.UDPAddr) {
@@ -428,12 +457,12 @@ func (gp *Gossiper) SendStatusMessage(to *net.UDPAddr) {
 	gp.SendPacket(&GossipPacket{Status: statusPacket}, to)
 }
 
-func (gp *Gossiper) SimpleBroadcast(message *SimpleMessage, except *net.UDPAddr) {
-	/*Broadcasts the SimpleMessage to all known nodes*/
+func (gp *Gossiper) Broadcast(packet *GossipPacket, except *net.UDPAddr) {
+	/*Broadcasts the packet to all known nodes*/
 	nodeAddresses := gp.Nodes.GetAll()
 	for _, nodeAddr := range nodeAddresses {
 		if nodeAddr.String() != except.String() {
-			gp.SendPacket(&GossipPacket{Simple: message}, nodeAddr)
+			gp.SendPacket(packet, nodeAddr)
 		}
 	}
 }

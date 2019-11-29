@@ -189,7 +189,7 @@ func (f *File) searchResult() *SearchResult {
 	}
 }
 
-func (f *File) GetBlockPublish() *BlockPublish {
+func (f *File) GetBlockPublish() BlockPublish {
 	f.RLock()
 	defer f.RUnlock()
 	txPublish := TxPublish{
@@ -198,7 +198,7 @@ func (f *File) GetBlockPublish() *BlockPublish {
 		MetaFileHash: f.MetaHash,
 	}
 
-	return &BlockPublish{
+	return BlockPublish{
 		Transaction: txPublish,
 	}
 }

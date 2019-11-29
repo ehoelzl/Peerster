@@ -8,6 +8,7 @@ import (
 type PeerRumors struct {
 	nextId   uint32
 	Messages map[uint32]*RumorMessage
+	// Add TLC Messages, with ACK count
 }
 
 func newPeerRumors() *PeerRumors {
