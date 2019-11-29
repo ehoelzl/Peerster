@@ -476,10 +476,9 @@ func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *D
 	}
 	request.Destination = destination
 
-	callback := func() {
-		go gp.SendDataRequest(metaHash, filename, request, locations, chunkId) } // Callback for ticker
+	callback := func() { go gp.SendDataRequest(metaHash, filename, request, locations, chunkId) } // Callback for ticker
 
-	gp.Files.RegisterRequest(request.HashValue, metaHash, filename, callback)                  // Register a ticker for the given hash
+	gp.Files.RegisterRequest(request.HashValue, metaHash, filename, callback) // Register a ticker for the given hash
 	if sent := gp.SendToNextHop(&GossipPacket{DataRequest: request}, destination); sent {
 		if utils.ToHex(metaHash) == utils.ToHex(request.HashValue) { // This is a MetaFile request
 			fmt.Printf("DOWNLOADING metafile of %v from %v\n", filename, destination)
