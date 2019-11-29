@@ -196,7 +196,9 @@ func (gp *Gossiper) InitiateSearch(request *SearchRequest) {
 		time.Sleep(1 * time.Second) // Sleep one second
 		budget *= 2
 	}
-	fmt.Println("SEARCH FINISHED")
+	if gp.FullMatches.AboveThreshold(matchThreshold) {
+		fmt.Println("SEARCH FINISHED")
+	}
 }
 
 /*---------------------------------- Gossip message handlers  ---------------------------------------------*/
