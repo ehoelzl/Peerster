@@ -30,6 +30,7 @@ type File struct {
 	chunks         map[string]*Chunk
 	chunkLocations map[uint64]map[string]struct{}
 	IsDownloaded   bool
+	IsComplete     bool
 	chunkCount     uint64
 	MetaHash       []byte
 	sync.RWMutex
@@ -87,7 +88,7 @@ func (f *File) getChunkData(chunk *Chunk) []byte {
 }
 
 func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
-	/*Adds a given chunk to the file (opens and appends the bytes)*/
+	/*Adds a given chunk to the file (opens and appends the bytes). Returns the next chunk, and a flag indicating whether there is one*/
 	f.Lock()
 	defer f.Unlock()
 
@@ -114,7 +115,7 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 			if err := file.Truncate(f.size); err != nil {
 				log.Println("Could not truncate file")
 			}
-			f.IsDownloaded = true // Mark file as complete
+			f.IsDownloaded = true // Mark file as downloaded
 		}
 		if err := file.Close(); err != nil { // Close the file
 			return nil, false
@@ -125,6 +126,14 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 	return nil, false
 }
 
+func (f *File) getChunkLocations(index uint64) ([]string, bool) {
+	locations, exists := f.chunkLocations[index]
+	if !exists {
+		return nil, false
+	}
+	return utils.MapToSlice(locations), true
+
+}
 func (f *File) updateChunkLocations(chunkMap []uint64, origin string) {
 	for _, chunkIndex := range chunkMap {
 		if _, ok := f.chunkLocations[chunkIndex]; !ok {
@@ -132,6 +141,22 @@ func (f *File) updateChunkLocations(chunkMap []uint64, origin string) {
 		}
 		f.chunkLocations[chunkIndex][origin] = struct{}{}
 
+	}
+	if uint64(len(f.chunkLocations)) == f.chunkCount {
+		f.IsComplete = true
+	}
+}
+
+func (f *File) deleteChunkLocation(chunkHash string, origin string) {
+	chunk, present := f.chunks[chunkHash]
+	if !present {
+		return
+	}
+	delete(f.chunkLocations[chunk.index], origin)
+
+	if len(f.chunkLocations[chunk.index]) == 0 {
+		delete(f.chunkLocations, chunk.index)
+		f.IsComplete = false
 	}
 }
 
@@ -239,46 +264,45 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool, []string) {
 	fs.Lock()
 	defer fs.Unlock()
 
-	var nextChunk *Chunk = nil
-	var file *File = nil
-	var locations []string
-
-	hasNext := false
 	hashValueString := utils.ToHex(dr.HashValue) // Hex hash in reply
 
 	if requested, ok := fs.requestedChunks[hashValueString]; ok { // Was requested for this hash
-		requested.ticker <- true                          // stop the running ticker
-		defer delete(fs.requestedChunks, hashValueString) // Delete the requested chunks
-
+		requested.ticker <- true                            // stop the running ticker
+		defer delete(fs.requestedChunks, hashValueString)   // Delete the requested chunks
 		isMetaFile := requested.metaHash == hashValueString // Means that the reply is a MetaFile
 
-		if dr.Data == nil && !isMetaFile { // Empty data => the origin does not have the requested chunk, delete it
-			file := fs.files[requested.metaHash]
-			chunk := file.chunks[hashValueString]
-			if _, ok := file.chunkLocations[chunk.index][dr.Origin]; ok { // The origin is in the list of Locations for this chunk
-				delete(file.chunkLocations[chunk.index], dr.Origin)
+		var nextChunk *Chunk
+		var file *File
+		var locations []string
+		hasNext := false
+
+		if dr.Data == nil && !isMetaFile { // Requested chunk is not available at dr.Origin
+			file := fs.files[requested.metaHash]                 // Get the corresponding file
+			file.deleteChunkLocation(hashValueString, dr.Origin) // Mark this chunk as not being in that location
+
+			nextChunk = file.chunks[hashValueString]                     // Get the requested chunk
+			locations, hasNext = file.getChunkLocations(nextChunk.index) // Check if it has locations
+			if !hasNext {                                                // We don't know where to find this chunk, so we don't request it anymore
+				nextChunk = nil
+				file = nil
+				locations = nil
 			}
-			return file, chunk, true, utils.MapToSlice(file.chunkLocations[chunk.index])
+		} else if dr.Data != nil && utils.CheckDataHash(dr.Data, hashValueString) { // Data not empty, and hash matches
+			if isMetaFile {
+				nextChunk, hasNext = fs.createDownloadFile(requested.filename, dr.HashValue, dr.Data, dr.Origin)
+			} else if file, ok := fs.files[requested.metaHash]; ok { // This is a requested chunk
+				nextChunk, hasNext = file.addChunk(dr.HashValue, dr.Data)
+			}
+
+			file = fs.files[requested.metaHash]
+			if nextChunk != nil && hasNext {
+				locations, hasNext = file.getChunkLocations(nextChunk.index)
+			}
 		}
 
-		if !utils.CheckDataHash(dr.Data, hashValueString) { // Drop the packet if faulty data
-			return nil, nil, false, nil
-		}
-
-		if isMetaFile {
-			nextChunk, hasNext = fs.createDownloadFile(requested.filename, dr.HashValue, dr.Data, dr.Origin)
-		} else if file, ok := fs.files[requested.metaHash]; ok { // This is a requested chunk
-			nextChunk, hasNext = file.addChunk(dr.HashValue, dr.Data)
-		}
-		file = fs.files[requested.metaHash]
-
-		if nextChunk != nil && hasNext {
-			locations = utils.MapToSlice(file.chunkLocations[nextChunk.index])
-		}
-
+		return file, nextChunk, hasNext, locations
 	}
-
-	return file, nextChunk, hasNext, locations
+	return nil, nil, false, nil
 }
 
 func (fs *Files) GetMetaFileLocations(request []byte) ([]string, bool) {
@@ -326,6 +350,7 @@ func (fs *Files) GetJsonString() []byte {
 }
 
 func (fs *Files) AddSearchResults(sr []*SearchResult, origin string) {
+	/*Adds the search results to the List of files, by adding the locations of each chunk*/
 	if sr == nil || len(sr) == 0 {
 		return
 	}
@@ -334,21 +359,17 @@ func (fs *Files) AddSearchResults(sr []*SearchResult, origin string) {
 
 	for _, res := range sr {
 		metaFileHash := utils.ToHex(res.MetafileHash)
-		if f, ok := fs.files[metaFileHash]; ok { // File already exists
-			f.updateChunkLocations(res.ChunkMap, origin) // Update the locations of each chunk
-		} else {
-			locations := make(map[uint64]map[string]struct{})
-			for _, i := range res.ChunkMap {
-				locations[i] = map[string]struct{}{origin: struct{}{},}
-			}
-
-			file := &File{
-				chunkLocations: locations,
+		file, exists := fs.files[metaFileHash]
+		if !exists { // New file
+			file = &File{
 				chunkCount:     res.ChunkCount,
 				MetaHash:       res.MetafileHash,
+				chunkLocations: make(map[uint64]map[string]struct{}),
 			}
 			fs.files[metaFileHash] = file
 		}
+		file.updateChunkLocations(res.ChunkMap, origin) // Update the locations of each chunk
+
 	}
 
 }
@@ -364,27 +385,24 @@ func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile [
 	chunks := parseMetaFile(metaFile) // Parse all the chunks
 	filePath := utils.GetAbsolutePath(downloadedDir, filename)
 
-	if filePresent { // Means file is indexed, and was found by Search
-		file.metaFile = metaFile
-		file.path = filePath
-		file.chunks = chunks
-		file.Filename = filename
-	} else {
-		chunkLocations := createChunkLocations(chunks, origin)
-
-		newFile := &File{
-			Filename:       filename,
-			metaFile:       metaFile,
-			path:           filePath,
-			size:           0,
-			chunks:         chunks,
-			chunkCount:     uint64(len(chunks)),
-			chunkLocations: chunkLocations,
+	if !filePresent { // Direct download (HW2)
+		chunkCount := uint64(len(chunks))
+		file = &File{
+			chunkCount:     chunkCount,
 			MetaHash:       metaHash,
+			chunkLocations: make(map[uint64]map[string]struct{}),
 		}
-		fs.files[hashString] = newFile
-		file = newFile
+		var chunkMap []uint64
+		for i := uint64(1); i <= chunkCount; i++ {
+			chunkMap = append(chunkMap, i)
+		}
+		file.updateChunkLocations(chunkMap, origin)
+		fs.files[hashString] = file
 	}
+	file.metaFile = metaFile
+	file.path = filePath
+	file.chunks = chunks
+	file.Filename = filename
 
 	utils.CreateEmptyFile(filePath, int64(len(chunks))*chunkSize)
 
@@ -407,14 +425,6 @@ func parseMetaFile(file []byte) map[string]*Chunk {
 		}
 	}
 	return chunks
-}
-
-func createChunkLocations(chunks map[string]*Chunk, origin string) map[uint64]map[string]struct{} {
-	locations := make(map[uint64]map[string]struct{})
-	for _, c := range chunks {
-		locations[c.index] = map[string]struct{}{origin: struct{}{},}
-	}
-	return locations
 }
 
 func createMetaFile(file *os.File) ([]byte, map[string]*Chunk) {
