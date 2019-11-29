@@ -83,14 +83,5 @@ func (fm *FullMatches) Reset() {
 func (fm *FullMatches) AboveThreshold(threshold int) bool {
 	fm.RLock()
 	defer fm.RUnlock()
-	if len(fm.matches) >= threshold {
-		return true
-	}
-
-	for _, m := range fm.matches {
-		if len(m) >= threshold {
-			return true
-		}
-	}
-	return false
+	return len(fm.matches) >= threshold
 }

@@ -161,7 +161,11 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 	if message.Destination != nil {
 		locations = []string{*message.Destination} // Force locations to be the one for now
 	} else {
-		locations, _ = gp.Files.GetMetaFileLocations(metaHash)
+		locs, hasLocations := gp.Files.GetMetaFileLocations(metaHash)
+		if !hasLocations {
+			return
+		}
+		locations = locs
 	}
 	gp.SendDataRequest(metaHash, *message.File, metaRequest, locations, 0)
 }
@@ -192,7 +196,7 @@ func (gp *Gossiper) InitiateSearch(request *SearchRequest) {
 		time.Sleep(1 * time.Second) // Sleep one second
 		budget *= 2
 	}
-	fmt.Printf("Stopped searching budget=%v\n", budget)
+	fmt.Println("SEARCH FINISHED")
 }
 
 /*---------------------------------- Gossip message handlers  ---------------------------------------------*/

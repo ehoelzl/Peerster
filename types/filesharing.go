@@ -132,7 +132,6 @@ func (f *File) getChunkLocations(index uint64) ([]string, bool) {
 		return nil, false
 	}
 	return utils.MapToSlice(locations), true
-
 }
 func (f *File) updateChunkLocations(chunkMap []uint64, origin string) {
 	for _, chunkIndex := range chunkMap {
