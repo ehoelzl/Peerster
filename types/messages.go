@@ -91,6 +91,17 @@ type BlockPublish struct {
 	Transaction TxPublish
 }
 
+type TLCMessage struct {
+	Origin      string
+	ID          uint32
+	Confirmed   int
+	TxBlock     BlockPublish
+	VectorClock *StatusPacket
+	Fitness     float32
+}
+
+type TLCAck PrivateMessage
+
 type GossipPacket struct {
 	Simple        *SimpleMessage
 	Rumor         *RumorMessage
@@ -100,6 +111,8 @@ type GossipPacket struct {
 	DataReply     *DataReply
 	SearchRequest *SearchRequest
 	SearchReply   *SearchReply
+	TLCMessage    *TLCMessage
+	Ack           *TLCAck
 }
 
 func (sp *StatusPacket) PrintStatusMessage(sender *net.UDPAddr) {
