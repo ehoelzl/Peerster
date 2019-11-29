@@ -139,7 +139,7 @@ func (s *Server) PostMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 		go s.Gossiper.HandleClientMessage(packetBytes)
 	} else { // File indexing
-		indexed := s.Gossiper.Files.IndexNewFile(*mess.File)
+		_, indexed := s.Gossiper.Files.IndexNewFile(*mess.File)
 		if indexed {
 			w.WriteHeader(http.StatusOK)
 		} else {
