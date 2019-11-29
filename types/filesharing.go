@@ -49,6 +49,8 @@ type Files struct {
 }
 
 func (f *File) getUnavailableChunk(index uint64) (*Chunk, bool) {
+	f.RLock()
+	defer f.RUnlock()
 	for _, c := range f.chunks {
 		if c.index == index && !c.available {
 			return c, true
@@ -127,13 +129,18 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 }
 
 func (f *File) getChunkLocations(index uint64) ([]string, bool) {
+	f.RLock()
+	defer f.RUnlock()
 	locations, exists := f.chunkLocations[index]
 	if !exists {
 		return nil, false
 	}
 	return utils.MapToSlice(locations), true
 }
+
 func (f *File) updateChunkLocations(chunkMap []uint64, origin string) {
+	f.Lock()
+	defer f.Unlock()
 	for _, chunkIndex := range chunkMap {
 		if _, ok := f.chunkLocations[chunkIndex]; !ok {
 			f.chunkLocations[chunkIndex] = make(map[string]struct{})
@@ -147,6 +154,8 @@ func (f *File) updateChunkLocations(chunkMap []uint64, origin string) {
 }
 
 func (f *File) deleteChunkLocation(chunkHash string, origin string) {
+	f.Lock()
+	defer f.Unlock()
 	chunk, present := f.chunks[chunkHash]
 	if !present {
 		return
@@ -161,6 +170,8 @@ func (f *File) deleteChunkLocation(chunkHash string, origin string) {
 
 func (f *File) searchResult() *SearchResult {
 	/*Transforms a file into SearchResult*/
+	f.RLock()
+	defer f.RUnlock()
 	var chunkMap []uint64
 	for _, c := range f.chunks {
 		if c.available {
@@ -178,6 +189,20 @@ func (f *File) searchResult() *SearchResult {
 	}
 }
 
+func (f *File) GetBlockPublish() *BlockPublish {
+	f.RLock()
+	defer f.RUnlock()
+	txPublish := TxPublish{
+		Name:         f.Filename,
+		Size:         f.size,
+		MetaFileHash: f.MetaHash,
+	}
+
+	return &BlockPublish{
+		Transaction: txPublish,
+	}
+}
+
 func InitFilesStruct() *Files {
 	return &Files{
 		files:           make(map[string]*File),
@@ -185,7 +210,7 @@ func InitFilesStruct() *Files {
 	}
 }
 
-func (fs *Files) IndexNewFile(filename string) bool {
+func (fs *Files) IndexNewFile(filename string) (*File, bool) {
 	/*Indexes a new file that should be located under _SharedFiles*/
 	fs.Lock()
 	defer fs.Unlock()
@@ -193,14 +218,14 @@ func (fs *Files) IndexNewFile(filename string) bool {
 	filePath := utils.GetAbsolutePath(sharedFilesDir, filename)
 	fileExists, file, fileSize := utils.CheckAndOpenRead(filePath) // Open file and check existence
 	if !fileExists {
-		return false
+		return nil, false
 	}
 	metaFile, chunks := createMetaFile(file)
 	metaHash := sha256.Sum256(metaFile) // Hash the metaFile
 	hashString := utils.ToHex(metaHash[:])
 
 	if _, ok := fs.files[hashString]; ok { // File is already indexed
-		return false
+		return nil, false
 	}
 
 	newFile := &File{
@@ -214,7 +239,7 @@ func (fs *Files) IndexNewFile(filename string) bool {
 
 	fs.files[hashString] = newFile
 	log.Printf("File %v indexed\n", hashString)
-	return true
+	return newFile, true
 
 }
 
