@@ -30,7 +30,7 @@ type File struct {
 	chunks         map[string]*Chunk
 	chunkLocations map[uint64]map[string]struct{}
 	IsDownloaded   bool
-	IsComplete     bool
+	isComplete     bool
 	chunkCount     uint64
 	MetaHash       []byte
 	sync.RWMutex
@@ -151,7 +151,7 @@ func (f *File) updateChunkLocations(chunkMap []uint64, origin string) {
 
 	}
 	if uint64(len(f.chunkLocations)) == f.chunkCount {
-		f.IsComplete = true
+		f.isComplete = true
 	}
 }
 
@@ -166,7 +166,7 @@ func (f *File) deleteChunkLocation(chunkHash string, origin string) {
 
 	if len(f.chunkLocations[chunk.index]) == 0 {
 		delete(f.chunkLocations, chunk.index)
-		f.IsComplete = false
+		f.isComplete = false
 	}
 }
 
@@ -212,6 +212,8 @@ func InitFilesStruct() *Files {
 	}
 }
 
+/*==================================== File Indexing ====================================*/
+
 func (fs *Files) IndexNewFile(filename string) (*File, bool) {
 	/*Indexes a new file that should be located under _SharedFiles*/
 	fs.Lock()
@@ -237,12 +239,58 @@ func (fs *Files) IndexNewFile(filename string) (*File, bool) {
 		size:     fileSize,
 		chunks:   chunks,
 		MetaHash: metaHash[:],
+		IsDownloaded: true,
 	}
 
 	fs.files[hashString] = newFile
 	log.Printf("File %v indexed\n", hashString)
 	return newFile, true
 
+}
+
+func createMetaFile(file *os.File) ([]byte, map[string]*Chunk) {
+	/*Reads a file and chunks it into 8KiB chunks, hashes them and concatenates them to an array*/
+	chunks := make(map[string]*Chunk)
+	buffer := make([]byte, chunkSize)
+
+	var chunkIndex uint64 = 1
+	var metaFile []byte
+
+	for n, err := file.Read(buffer); err == nil; {
+		content := buffer[:n]                   // Read content
+		hash := sha256.Sum256(content)          // Hash 8KiB
+		metaFile = append(metaFile, hash[:]...) // Append to metaFile
+
+		chunks[utils.ToHex(hash[:])] = &Chunk{ // Add chunk
+			available: true,
+			index:     chunkIndex,
+			Hash:      hash[:],
+		}
+		chunkIndex += 1
+		n, err = file.Read(buffer)
+	}
+	return metaFile, chunks
+}
+
+func (fs *Files) IsIndexed(metaFileHash []byte) bool {
+	fs.RLock()
+	defer fs.RUnlock()
+	if metaFileHash == nil {
+		return false
+	}
+	_, indexed := fs.files[utils.ToHex(metaFileHash)]
+	return indexed
+}
+
+/*==================================== File Download ====================================*/
+
+func (fs *Files) IsDownloaded(metaFileHash []byte) bool {
+	fs.RLock()
+	defer fs.RUnlock()
+	if file, ok := fs.files[utils.ToHex(metaFileHash)]; ok {
+		return file.IsDownloaded
+	}
+	return false
 }
 
 func (fs *Files) GetDataChunk(hash []byte) []byte {
@@ -270,6 +318,7 @@ func (fs *Files) RegisterRequest(chunkHash []byte, metaHash []byte, filename str
 	defer fs.Unlock()
 
 	chunkHashString := utils.ToHex(chunkHash)
+	// First check if there are already tickers running for this chunk, delete them and stop them
 	if req, ok := fs.requestedChunks[chunkHashString]; ok {
 		req.ticker <- true
 		delete(fs.requestedChunks, chunkHashString)
@@ -281,7 +330,7 @@ func (fs *Files) RegisterRequest(chunkHash []byte, metaHash []byte, filename str
 		ticker:   ticker,
 		filename: filename,
 	}
-	fs.requestedChunks[chunkHashString] = requested
+	fs.requestedChunks[chunkHashString] = requested // Add the new ticker
 }
 
 func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool, []string) {
@@ -330,75 +379,6 @@ func (fs *Files) ParseDataReply(dr *DataReply) (*File, *Chunk, bool, []string) {
 	return nil, nil, false, nil
 }
 
-func (fs *Files) GetMetaFileLocations(request []byte) ([]string, bool) {
-	/*Returns all the possible locations for the MetaFile (any Node with chunk number 1)*/
-	fs.RLock()
-	defer fs.RUnlock()
-	hash := utils.ToHex(request)
-	if _, ok := fs.files[hash]; !ok {
-		return nil, false
-	}
-	locations := utils.MapToSlice(fs.files[hash].chunkLocations[1])
-	return locations, locations != nil
-}
-
-func (fs *Files) SearchFiles(keywords []string) ([]*SearchResult, bool) {
-	/*Searches for files that contain the given keywords*/
-	fs.RLock()
-	defer fs.RUnlock()
-
-	matches := make(map[string]bool)
-	var results []*SearchResult
-	for _, k := range keywords {
-		if len(k) == 0 { // Double check
-			continue
-		}
-		for _, f := range fs.files {
-			if _, ok := matches[f.Filename]; !ok && strings.Contains(f.Filename, k) { // Match for this name
-				matches[f.Filename] = true
-				results = append(results, f.searchResult())
-			}
-		}
-	}
-	return results, len(results) > 0
-}
-
-func (fs *Files) GetJsonString() []byte {
-	fs.RLock()
-	defer fs.RUnlock()
-	jsonString, err := json.Marshal(fs.files)
-	if err != nil {
-		log.Println("Could not marshall Files")
-		return nil
-	}
-	return jsonString
-}
-
-func (fs *Files) AddSearchResults(sr []*SearchResult, origin string) {
-	/*Adds the search results to the List of files, by adding the locations of each chunk*/
-	if sr == nil || len(sr) == 0 {
-		return
-	}
-	fs.Lock()
-	defer fs.Unlock()
-
-	for _, res := range sr {
-		metaFileHash := utils.ToHex(res.MetafileHash)
-		file, exists := fs.files[metaFileHash]
-		if !exists { // New file
-			file = &File{
-				chunkCount:     res.ChunkCount,
-				MetaHash:       res.MetafileHash,
-				chunkLocations: make(map[uint64]map[string]struct{}),
-			}
-			fs.files[metaFileHash] = file
-		}
-		file.updateChunkLocations(res.ChunkMap, origin) // Update the locations of each chunk
-
-	}
-
-}
-
 func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile []byte, origin string) (*Chunk, bool) {
 	/*Creates an empty File struct to start downloading, puts the path as downloadedDir*/
 	hashString := utils.ToHex(metaHash)
@@ -421,7 +401,7 @@ func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile [
 		for i := uint64(1); i <= chunkCount; i++ {
 			chunkMap = append(chunkMap, i)
 		}
-		file.updateChunkLocations(chunkMap, origin)
+		file.updateChunkLocations(chunkMap, origin) // Assign the origin as having all chunks
 		fs.files[hashString] = file
 	}
 	file.metaFile = metaFile
@@ -452,26 +432,98 @@ func parseMetaFile(file []byte) map[string]*Chunk {
 	return chunks
 }
 
-func createMetaFile(file *os.File) ([]byte, map[string]*Chunk) {
-	/*Reads a file and chunks it into 8KiB chunks, hashes them and concatenates them to an array*/
-	chunks := make(map[string]*Chunk)
-	buffer := make([]byte, chunkSize)
+/*==================================== File Search ====================================*/
 
-	var chunkIndex uint64 = 1
-	var metaFile []byte
-
-	for n, err := file.Read(buffer); err == nil; {
-		content := buffer[:n]                   // Read content
-		hash := sha256.Sum256(content)          // Hash 8KiB
-		metaFile = append(metaFile, hash[:]...) // Append to metaFile
-
-		chunks[utils.ToHex(hash[:])] = &Chunk{ // Add chunk
-			available: true,
-			index:     chunkIndex,
-			Hash:      hash[:],
-		}
-		chunkIndex += 1
-		n, err = file.Read(buffer)
+func (fs *Files) AllChunksLocationKnown(metaFileHash []byte) bool {
+	fs.RLock()
+	defer fs.RUnlock()
+	if file, ok := fs.files[utils.ToHex(metaFileHash)]; ok {
+		return file.isComplete
 	}
-	return metaFile, chunks
+	return false
 }
+
+func (fs *Files) GetFileChunkLocations(metaFileHash []byte, index uint64) ([]string, bool) {
+	fs.RLock()
+	defer fs.RUnlock()
+	if file, ok := fs.files[utils.ToHex(metaFileHash)]; ok {
+		if locations, ok := file.chunkLocations[index]; ok {
+			return utils.MapToSlice(locations), true
+		}
+	}
+	return nil, false
+}
+
+func (fs *Files) UpdateAllChunkLocations(metaFileHash []byte, origin string) {
+	/*Updates the location of all chunks to one origin*/
+	fs.Lock()
+	defer fs.Unlock()
+	if file, ok := fs.files[utils.ToHex(metaFileHash)]; ok {
+		var chunkMap []uint64
+		for i := uint64(1); i <= file.chunkCount; i++ {
+			chunkMap = append(chunkMap, i)
+		}
+		file.updateChunkLocations(chunkMap, origin)
+	}
+
+}
+
+func (fs *Files) SearchFiles(keywords []string) ([]*SearchResult, bool) {
+	/*Searches for files that contain the given keywords*/
+	fs.RLock()
+	defer fs.RUnlock()
+
+	matches := make(map[string]bool)
+	var results []*SearchResult
+	for _, k := range keywords {
+		if len(k) == 0 { // Double check
+			continue
+		}
+		for _, f := range fs.files {
+			if _, ok := matches[f.Filename]; !ok && strings.Contains(f.Filename, k) { // Match for this name
+				matches[f.Filename] = true
+				results = append(results, f.searchResult())
+			}
+		}
+	}
+	return results, len(results) > 0
+}
+
+func (fs *Files) AddSearchResults(sr []*SearchResult, origin string) {
+	/*Adds the search results to the List of files, by adding the locations of each chunk*/
+	if sr == nil || len(sr) == 0 {
+		return
+	}
+	fs.Lock()
+	defer fs.Unlock()
+
+	for _, res := range sr {
+		metaFileHash := utils.ToHex(res.MetafileHash)
+		file, exists := fs.files[metaFileHash]
+		if !exists { // New file
+			file = &File{
+				chunkCount:     res.ChunkCount,
+				MetaHash:       res.MetafileHash,
+				chunkLocations: make(map[uint64]map[string]struct{}),
+			}
+			fs.files[metaFileHash] = file
+		}
+		file.updateChunkLocations(res.ChunkMap, origin) // Update the locations of each chunk
+
+	}
+
+}
+
+/*==================================== Server functions ====================================*/
+
+func (fs *Files) GetJsonString() []byte {
+	fs.RLock()
+	defer fs.RUnlock()
+	jsonString, err := json.Marshal(fs.files)
+	if err != nil {
+		log.Println("Could not marshall Files")
+		return nil
+	}
+	return jsonString
+}
+

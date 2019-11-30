@@ -137,7 +137,7 @@ func (gp *Gossiper) HandleClientRumorMessage(message *Message) {
 			RelayPeerAddr: gp.GossipAddress.String(),
 			Contents:      message.Text,
 		}
-		gp.Broadcast(&GossipPacket{Simple:simpleMessage}, nil)
+		gp.Broadcast(&GossipPacket{Simple: simpleMessage}, nil)
 	} else { // Rumor case
 		rumorMessage := gp.Rumors.CreateNewRumor(gp.Name, message.Text) // Create new rumor
 		messageAdded := gp.Rumors.AddRumorMessage(rumorMessage)         // Add it to list
@@ -158,6 +158,10 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 	/*Handles a file request done by the client*/
 	metaHash := *message.Request // Get the hash of
 
+	if metaHash == nil || message.Destination == nil || gp.Files.IsDownloaded(metaHash) { // Check if it is already downloaded
+		log.Println("Cannot download file (maybe already downloaded)")
+		return
+	}
 	// First request the MetaFile
 	metaRequest := &DataRequest{
 		Origin:    gp.Name,
@@ -165,15 +169,19 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 		HashValue: metaHash,
 	}
 	var locations []string
-	if message.Destination != nil {
-		locations = []string{*message.Destination} // Force locations to be the one for now
-	} else {
-		locs, hasLocations := gp.Files.GetMetaFileLocations(metaHash)
-		if !hasLocations {
+
+	if gp.Files.IsIndexed(metaHash) { // If file Indexed, and destination is specified, update all chunk locations
+		if message.Destination != nil {
+			gp.Files.UpdateAllChunkLocations(metaHash, *message.Destination)
+		}
+		if !gp.Files.AllChunksLocationKnown(metaHash) { // We don't know all the locations of chunks
 			return
 		}
-		locations = locs
+		locations, _ = gp.Files.GetFileChunkLocations(metaHash, 1) // We know there will be a location for this file
+	} else { // Otherwise, set destination as specified
+		locations = []string{*message.Destination}
 	}
+
 	gp.SendDataRequest(metaHash, *message.File, metaRequest, locations, 0)
 }
 
@@ -229,7 +237,7 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 		gp.Nodes.Print()
 
 		packet.Simple.RelayPeerAddr = gp.GossipAddress.String()
-		gp.Broadcast(&GossipPacket{Simple:packet.Simple}, from)
+		gp.Broadcast(&GossipPacket{Simple: packet.Simple}, from)
 	} else {                                     // Rumor/Private/File
 		if rumor := packet.Rumor; rumor != nil { // RumorMessage
 			gp.HandleRumorMessage(from, rumor)
@@ -424,9 +432,10 @@ func (gp *Gossiper) HandleTLCAck(from *net.UDPAddr, ack *TLCAck) {
 		// If majority reached, send TLC again, with corresponding Fields
 	} else {
 		ack.HopLimit -= 1
-		gp.SendToNextHop(&GossipPacket{Ack:ack}, ack.Destination)
+		gp.SendToNextHop(&GossipPacket{Ack: ack}, ack.Destination)
 	}
 }
+
 /*-------------------- Methods used for transferring messages and broadcasting ------------------------------*/
 
 func (gp *Gossiper) SendPacket(packet *GossipPacket, to *net.UDPAddr) {
