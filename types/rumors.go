@@ -6,34 +6,55 @@ import (
 
 /*PeerRumors is an encapsulation of all the messages with one origin (the peer)*/
 type PeerRumors struct {
-	nextId   uint32
-	Messages map[uint32]*RumorMessage
-	// Add TLC Messages, with ACK count
+	nextId uint32
+	Rumors map[uint32]*RumorMessage
+	TLCMessages map[uint32]*TLCMessage
 }
 
 func newPeerRumors() *PeerRumors {
 	return &PeerRumors{
-		nextId:   1,
-		Messages: make(map[uint32]*RumorMessage),
+		nextId: 1,
+		Rumors: make(map[uint32]*RumorMessage),
+		TLCMessages: make(map[uint32]*TLCMessage),
 	}
 }
 
 func (p *PeerRumors) addRumor(rumor *RumorMessage) bool {
 	/*Adds the given rumor to the struct, and increments nextId accordingly (accepts rumors when ID >= nextID*/
 	isNewRumor := false
-	if _, ok := p.Messages[rumor.ID]; rumor.ID >= p.nextId && !ok{ // New message
+	if _, ok := p.Rumors[rumor.ID]; rumor.ID >= p.nextId && !ok{ // New message
 		isNewRumor = true
-		p.Messages[rumor.ID] = rumor // Add new message to list
-		if rumor.ID == p.nextId {    // Update
+		p.Rumors[rumor.ID] = rumor // Add new message to list
+		if rumor.ID == p.nextId {  // Update
 			p.nextId += 1
 		}
-		// Now see if we should increment next ID (received later messages)
-		for _, ok := p.Messages[p.nextId]; ok; { // Means the Next ID should be incremented
-			p.nextId +=1
-			_, ok = p.Messages[p.nextId]
-		}
+		p.fixNextId()
 	}
 	return isNewRumor
+}
+
+func (p *PeerRumors) fixNextId() {
+	_, hasRumor := p.Rumors[p.nextId]
+	_, hasTLC := p.TLCMessages[p.nextId]
+	for ;hasRumor || hasTLC; { // Means the Next ID should be incremented
+		p.nextId +=1
+		_, hasRumor = p.Rumors[p.nextId]
+		_, hasTLC = p.TLCMessages[p.nextId]
+	}
+}
+
+func (p *PeerRumors) addTLCMessage(tlc *TLCMessage) bool {
+	/*Adds the given rumor to the struct, and increments nextId accordingly (accepts rumors when ID >= nextID*/
+	isNewTLC := false
+	if _, ok := p.TLCMessages[tlc.ID]; tlc.ID >= p.nextId && !ok{ // New message
+		isNewTLC = true
+		p.TLCMessages[tlc.ID] = tlc // Add new TLCMessage to list
+		if tlc.ID == p.nextId {  // Update
+			p.nextId += 1
+		}
+		p.fixNextId()
+	}
+	return isNewTLC
 }
 
 /*======================= Definition of A Collection of peers =======================*/
@@ -66,6 +87,18 @@ func (r *Rumors) CreateNewRumor(origin string, message string) *RumorMessage {
 	return rumor
 }
 
+func (r *Rumors) CreateNewTLCMessage(origin string, confirmed int, txBlock BlockPublish) *TLCMessage {
+	r.RLock()
+	defer r.RUnlock()
+	tlc := &TLCMessage{
+		Origin:      origin,
+		ID:          r.rumors[origin].nextId,
+		Confirmed:   confirmed,
+		TxBlock:     txBlock,
+	}
+	return tlc
+}
+
 func (r *Rumors) AddRumorMessage(rumor *RumorMessage) bool {
 	/*Adds the given rumor message to the structure, and returns a bool to check if it was a newRumpor (i.e. it was added)*/
 	r.Lock()
@@ -82,6 +115,19 @@ func (r *Rumors) AddRumorMessage(rumor *RumorMessage) bool {
 	return isNewRumor
 }
 
+func (r *Rumors) AddTLCMessage(tlc *TLCMessage) bool {
+	r.Lock()
+	defer r.Unlock()
+	isNewTLC := false
+	if elem, ok := r.rumors[tlc.Origin]; ok {
+		isNewTLC = elem.addTLCMessage(tlc)
+	} else {
+		r.rumors[tlc.Origin] = newPeerRumors()
+		isNewTLC = r.rumors[tlc.Origin].addTLCMessage(tlc)
+	}
+	return isNewTLC
+}
+
 func (r *Rumors) GetStatusPacket() *StatusPacket {
 	/*Constructs and returns the current status*/
 	r.RLock()
@@ -93,7 +139,7 @@ func (r *Rumors) GetStatusPacket() *StatusPacket {
 	return &StatusPacket{Want: statusMessages}
 }
 
-func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool, bool) {
+func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool, bool) { // TODO : adapt for TLCMessage
 	/*Compares the given status to the struct, and returns the missingMessage, a flag indicating whether they are missing messages, and a flag if I am missing messages*/
 	r.RLock()
 	defer r.RUnlock()
@@ -105,10 +151,10 @@ func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool,
 	for identifier, peer := range r.rumors {
 		nextId, ok := statusMap[identifier]
 		if !ok && peer.nextId > 1{ // The peer is not present in their status, and has new messages
-			message = peer.Messages[1]
+			message = peer.Rumors[1]
 			return message, true, false // Send pack first message
 		} else if ok && nextId < peer.nextId { // They have missing messages from this peer
-			message = peer.Messages[nextId] // Select the missing message
+			message = peer.Rumors[nextId] // Select the missing message
 			return message, true, false
 		}
 	}

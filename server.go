@@ -26,7 +26,7 @@ func (s *Server) GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	for identifier, p := range rumors {
 		messages := make(map[uint32]string)
-		for _, m := range p.Messages {
+		for _, m := range p.Rumors {
 			if len(m.Text) > 0 {
 				messages[m.ID] = m.Text
 			}
