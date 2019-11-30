@@ -13,7 +13,7 @@ import (
 
 type Node struct {
 	ticker   chan bool
-	lastSent *RumorMessage
+	lastSent *GossipPacket
 	udpAddr  *net.UDPAddr
 }
 
@@ -104,7 +104,7 @@ func (nodes *Nodes) Print() {
 	fmt.Printf("PEERS %v\n", strings.Join(stringAddresses, ","))
 }
 
-func (nodes *Nodes) StartTicker(address *net.UDPAddr, message *RumorMessage, callback func()) {
+func (nodes *Nodes) StartTicker(address *net.UDPAddr, packet *GossipPacket, callback func()) {
 	/*Starts a ticker for the given node, and the given message. The callback*/
 	nodes.Lock()
 	defer nodes.Unlock()
@@ -113,7 +113,7 @@ func (nodes *Nodes) StartTicker(address *net.UDPAddr, message *RumorMessage, cal
 			node.ticker <- true // If other ticker running, kill it
 		}
 		node.ticker = utils.NewTimoutTicker(callback, 10) // Create a new ticker
-		node.lastSent = message
+		node.lastSent = packet
 	}
 }
 
@@ -127,11 +127,11 @@ func (nodes *Nodes) DeleteTicker(address *net.UDPAddr) {
 	}
 }
 
-func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr) (*RumorMessage, bool) {
+func (nodes *Nodes) CheckTimeouts(address *net.UDPAddr) (*GossipPacket, bool) {
 	/*Checks if the given node has a timeout running, and returns the last sent message*/
 	nodes.Lock()
 	defer nodes.Unlock()
-	var lastMessage *RumorMessage
+	var lastMessage *GossipPacket
 	if node, ok := nodes.nodes[address.String()]; ok {
 		if node.ticker == nil { // If no ticker running, means no message
 			return nil, false

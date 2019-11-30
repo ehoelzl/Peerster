@@ -149,7 +149,7 @@ func (gp *Gossiper) HandleClientRumorMessage(message *Message) {
 		rumorMessage := gp.Rumors.CreateNewRumor(gp.Name, message.Text) // Create new rumor
 		messageAdded := gp.Rumors.AddRumorMessage(rumorMessage)         // Add it to list
 		if messageAdded {                                               //Rumor Only if message was not seen before (i.e. added)
-			gp.StartRumormongering(rumorMessage, nil, false, true)
+			gp.StartRumormongering(&GossipPacket{Rumor: rumorMessage}, nil, false, true)
 		}
 	}
 }
@@ -289,8 +289,8 @@ func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 			gp.Routing.UpdateRoute(rumor.Origin, from, len(rumor.Text) == 0) // Update routing table (do not print if route rumor)
 		}
 
-		except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
-		gp.StartRumormongering(rumor, except, false, true)       // Start RumorMongering
+		except := map[string]struct{}{from.String(): struct{}{}}                 // Monger with other nodes except this one
+		gp.StartRumormongering(&GossipPacket{Rumor: rumor}, except, false, true) // Start RumorMongering
 	}
 }
 
@@ -299,7 +299,7 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 
 	status.PrintStatusMessage(from) // Print the received status and known nodes
 	gp.Nodes.Print()
-	lastRumor, isAck := gp.Nodes.CheckTimeouts(from)                        // Check if any timer for the sending node
+	lastPacket, isAck := gp.Nodes.CheckTimeouts(from)                       // Check if any timer for the sending node
 	missingMessage, isMissing, amMissing := gp.Rumors.CompareStatus(status) // Compare the statuses
 	inSync := !(isMissing || amMissing)
 
@@ -307,7 +307,7 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 		fmt.Printf("IN SYNC WITH %v\n", from.String())
 		if flip := utils.CoinFlip(); isAck && flip { // Check if the StatusPacket is an ACK or if it's just due to AntiEntropy
 			except := map[string]struct{}{from.String(): struct{}{}} // Monger with other nodes except this one
-			gp.StartRumormongering(lastRumor, except, true, false)
+			gp.StartRumormongering(lastPacket, except, true, false)
 		}
 	} else {
 		if isMissing { // Means they are missing a message
@@ -497,7 +497,7 @@ func (gp *Gossiper) Broadcast(packet *GossipPacket, except *net.UDPAddr) {
 	}
 }
 
-func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string]struct{}, coinFlip bool, withTimeout bool) {
+func (gp *Gossiper) StartRumormongering(packet *GossipPacket, except map[string]struct{}, coinFlip bool, withTimeout bool) {
 	/*Starts the RumorMongering process with the given message*/
 	randomNode, ok := gp.Nodes.GetRandomNode(except) // Pick random Node
 	if !ok {                                         // Check if could retrieve node
@@ -514,13 +514,13 @@ func (gp *Gossiper) StartRumormongering(message *RumorMessage, except map[string
 	}
 	except[randomNode.String()] = struct{}{} // Add node we send to, to the except list
 
-	gp.SendPacket(&GossipPacket{Rumor: message}, randomNode) // Send rumor
-	if withTimeout {                                         // Check if we need to add a timer
+	gp.SendPacket(packet, randomNode) // Send rumor
+	if withTimeout {                  // Check if we need to add a timer
 		callback := func() { // Callback if not times out
-			go gp.StartRumormongering(message, except, false, true) // Monger with other node
+			go gp.StartRumormongering(packet, except, false, true) // Monger with other node
 			gp.Nodes.DeleteTicker(randomNode)
 		}
-		gp.Nodes.StartTicker(randomNode, message, callback)
+		gp.Nodes.StartTicker(randomNode, packet, callback)
 	}
 
 }
@@ -529,7 +529,7 @@ func (gp *Gossiper) SendRouteRumor() {
 	/*Creates a route rumor and sends it to a random Peer*/
 	routeRumor := gp.Rumors.CreateNewRumor(gp.Name, "")
 	gp.Rumors.AddRumorMessage(routeRumor)
-	gp.StartRumormongering(routeRumor, nil, false, true)
+	gp.StartRumormongering(&GossipPacket{Rumor: routeRumor}, nil, false, true)
 }
 
 /*-------------------- For File Sharing between gossipers ------------------------------*/
