@@ -154,11 +154,12 @@ func (gp *Gossiper) HandleFileIndexing(message *Message) {
 	}
 	// Create function that does the TLCMessage (unconfirmed, and start timer that stops when
 }
+
 func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 	/*Handles a file request done by the client*/
 	metaHash := *message.Request // Get the hash of
 
-	if metaHash == nil || message.Destination == nil || gp.Files.IsDownloaded(metaHash) { // Check if it is already downloaded
+	if metaHash == nil || gp.Files.IsDownloaded(metaHash) { // Check if it is already downloaded
 		log.Println("Cannot download file (maybe already downloaded)")
 		return
 	}
