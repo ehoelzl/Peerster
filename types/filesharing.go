@@ -339,13 +339,13 @@ func (fs *Files) ParseDataReply(dr *DataReply) ([]byte, uint64) {
 		isMetaFile := requested.metaHash == hashValueString // Means that the reply is a MetaFile
 
 		var nextChunkIndex uint64
-		if dr.Data == nil && !isMetaFile { // Requested chunk is not available at dr.Origin
+		if len(dr.Data) == 0 && !isMetaFile { // Requested chunk is not available at dr.Origin
 			file := fs.files[requested.metaHash]                 // Get the corresponding file
 			file.deleteChunkLocation(hashValueString, dr.Origin) // Mark this chunk as not being in that location
 
 			chunk := file.chunks[hashValueString]
 			nextChunkIndex = chunk.index
-		} else if dr.Data != nil && utils.CheckDataHash(dr.Data, hashValueString) { // Data not empty, and hash matches
+		} else if len(dr.Data) > 0 && utils.CheckDataHash(dr.Data, hashValueString) { // Data not empty, and hash matches
 			if isMetaFile {
 				created := fs.createDownloadFile(requested.filename, dr.HashValue, dr.Data, dr.Origin)
 				if created {
