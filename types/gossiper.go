@@ -180,6 +180,10 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 		}
 		locations, _ = gp.Files.GetFileChunkLocations(metaHash, 1) // We know there will be a location for this file
 	} else { // Otherwise, set destination as specified
+		if message.Destination == nil {
+			log.Println("Trying to download non-discovered file without destination")
+			return
+		}
 		locations = []string{*message.Destination}
 	}
 
@@ -348,16 +352,25 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 		return
 	}
 	if dr.Destination == gp.Name {
-		file, nextChunk, hasNext, locations := gp.Files.ParseDataReply(dr)
-		if hasNext {
+		metaFileHash, nextChunkIndex := gp.Files.ParseDataReply(dr)
+		if nextChunkIndex == 0 {
+			return
+		}
+
+		nextChunk, hasNext := gp.Files.GetFileChunk(metaFileHash, nextChunkIndex)
+		fileName := gp.Files.GetFileName(metaFileHash)
+		if hasNext && !nextChunk.available{
 			chunkRequest := &DataRequest{
 				Origin:    gp.Name,
 				HopLimit:  hopLimit - 1,
 				HashValue: nextChunk.Hash,
 			}
-			gp.SendDataRequest(file.MetaHash, file.Filename, chunkRequest, locations, nextChunk.index)
-		} else if file != nil && file.IsDownloaded {
-			fmt.Printf("RECONSTRUCTED file %v\n", file.Filename)
+			locations, hasLocations := gp.Files.GetFileChunkLocations(metaFileHash, nextChunkIndex)
+			if hasLocations {
+				gp.SendDataRequest(metaFileHash, fileName, chunkRequest, locations, nextChunk.index)
+			}
+		} else if len(fileName) > 0 && gp.Files.IsDownloaded(metaFileHash) {
+			fmt.Printf("RECONSTRUCTED file %v\n", fileName)
 		}
 	} else {
 		dr.HopLimit -= 1
