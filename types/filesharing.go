@@ -23,23 +23,22 @@ type Chunk struct {
 }
 
 type File struct {
-	Filename       string
+	filename       string
 	path           string
 	metaFile       []byte
 	size           int64
 	chunks         map[string]*Chunk
 	chunkLocations map[uint64]map[string]struct{}
-	IsDownloaded   bool
+	isDownloaded   bool
 	isComplete     bool
 	chunkCount     uint64
-	MetaHash       []byte
-	sync.RWMutex
+	metaHash       []byte
 }
 
 type requestedChunk struct { // Structure for a requested chunk that has not yet been received
 	metaHash string    //Has of the associated metaFile
 	ticker   chan bool // Channel for running ticker
-	filename string    // Filename
+	filename string    // filename
 }
 
 type Files struct {
@@ -48,12 +47,8 @@ type Files struct {
 	sync.RWMutex
 }
 
-
 func (f *File) getChunkData(chunk *Chunk) []byte {
 	/*Returns the data associated to the given chunk (Opens the file, reads the chunk and returns it)*/
-	f.Lock()
-	defer f.Unlock()
-
 	// If chunk not available, cannot send
 	if !chunk.available {
 		return nil
@@ -81,8 +76,6 @@ func (f *File) getChunkData(chunk *Chunk) []byte {
 
 func (f *File) addChunk(chunkHash []byte, chunkData []byte) (uint64, bool) {
 	/*Adds a given chunk to the file (opens and appends the bytes). Returns the next chunk, and a flag indicating whether there is one*/
-	f.Lock()
-	defer f.Unlock()
 
 	chunkHashString := utils.ToHex(chunkHash)
 	if chunk, ok := f.chunks[chunkHashString]; ok && !chunk.available { // Check that the chunk was not received already
@@ -112,7 +105,7 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (uint64, bool) {
 			if err := file.Truncate(f.size); err != nil {
 				log.Println("Could not truncate file")
 			}
-			f.IsDownloaded = true // Mark file as downloaded
+			f.isDownloaded = true // Mark file as downloaded
 		}
 		if err := file.Close(); err != nil { // Close the file
 			return 0, false
@@ -123,19 +116,7 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (uint64, bool) {
 	return 0, false
 }
 
-func (f *File) getChunkLocations(index uint64) ([]string, bool) {
-	f.RLock()
-	defer f.RUnlock()
-	locations, exists := f.chunkLocations[index]
-	if !exists {
-		return nil, false
-	}
-	return utils.MapToSlice(locations), true
-}
-
 func (f *File) updateChunkLocations(chunkMap []uint64, origin string) {
-	f.Lock()
-	defer f.Unlock()
 	for _, chunkIndex := range chunkMap {
 		if _, ok := f.chunkLocations[chunkIndex]; !ok {
 			f.chunkLocations[chunkIndex] = make(map[string]struct{})
@@ -149,8 +130,6 @@ func (f *File) updateChunkLocations(chunkMap []uint64, origin string) {
 }
 
 func (f *File) deleteChunkLocation(chunkHash string, origin string) {
-	f.Lock()
-	defer f.Unlock()
 	chunk, present := f.chunks[chunkHash]
 	if !present {
 		return
@@ -165,32 +144,31 @@ func (f *File) deleteChunkLocation(chunkHash string, origin string) {
 
 func (f *File) searchResult() *SearchResult {
 	/*Transforms a file into SearchResult*/
-	f.RLock()
-	defer f.RUnlock()
 	var chunkMap []uint64
 	for _, c := range f.chunks {
 		if c.available {
 			chunkMap = append(chunkMap, c.index)
 		}
 	}
+	if len(chunkMap) == 0 {
+		return nil
+	}
 	sort.SliceStable(chunkMap, func(i, j int) bool { return chunkMap[i] < chunkMap[j] })
 
 	chunkCount := len(f.metaFile) / hashSize
 	return &SearchResult{
-		FileName:     f.Filename,
-		MetafileHash: f.MetaHash,
+		FileName:     f.filename,
+		MetafileHash: f.metaHash,
 		ChunkMap:     chunkMap,
 		ChunkCount:   uint64(chunkCount),
 	}
 }
 
 func (f *File) GetBlockPublish() BlockPublish {
-	f.RLock()
-	defer f.RUnlock()
 	txPublish := TxPublish{
-		Name:         f.Filename,
+		Name:         f.filename,
 		Size:         f.size,
-		MetaFileHash: f.MetaHash,
+		MetaFileHash: f.metaHash,
 	}
 
 	return BlockPublish{
@@ -226,13 +204,13 @@ func (fs *Files) IndexNewFile(filename string) (*File, bool) {
 	}
 
 	newFile := &File{
-		Filename:     filename,
+		filename:     filename,
 		path:         filePath,
 		metaFile:     metaFile,
 		size:         fileSize,
 		chunks:       chunks,
-		MetaHash:     metaHash[:],
-		IsDownloaded: true,
+		metaHash:     metaHash[:],
+		isDownloaded: true,
 	}
 
 	fs.files[hashString] = newFile
@@ -292,17 +270,18 @@ func (fs *Files) GetFileName(metaFileHash []byte) string {
 	fs.RLock()
 	defer fs.RUnlock()
 	if file, ok := fs.files[utils.ToHex(metaFileHash)]; ok {
-		return file.Filename
+		return file.filename
 	}
 	return ""
 }
+
 /*==================================== File Download ====================================*/
 
 func (fs *Files) IsDownloaded(metaFileHash []byte) bool {
 	fs.RLock()
 	defer fs.RUnlock()
 	if file, ok := fs.files[utils.ToHex(metaFileHash)]; ok {
-		return file.IsDownloaded
+		return file.isDownloaded
 	}
 	return false
 }
@@ -399,7 +378,7 @@ func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile [
 		chunkCount := uint64(len(chunks))
 		file = &File{
 			chunkCount:     chunkCount,
-			MetaHash:       metaHash,
+			metaHash:       metaHash,
 			chunkLocations: make(map[uint64]map[string]struct{}),
 		}
 		var chunkMap []uint64
@@ -412,7 +391,7 @@ func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile [
 	file.metaFile = metaFile
 	file.path = filePath
 	file.chunks = chunks
-	file.Filename = filename
+	file.filename = filename
 
 	utils.CreateEmptyFile(filePath, int64(len(chunks))*chunkSize)
 
@@ -484,9 +463,12 @@ func (fs *Files) SearchFiles(keywords []string) ([]*SearchResult, bool) {
 			continue
 		}
 		for _, f := range fs.files {
-			if _, ok := matches[f.Filename]; !ok && strings.Contains(f.Filename, k) { // Match for this name
-				matches[f.Filename] = true
-				results = append(results, f.searchResult())
+			if _, ok := matches[f.filename]; !ok && strings.Contains(f.filename, k) { // Match for this name
+				matches[f.filename] = true
+				result := f.searchResult()
+				if result != nil {
+					results = append(results, result)
+				}
 			}
 		}
 	}
@@ -507,7 +489,7 @@ func (fs *Files) AddSearchResults(sr []*SearchResult, origin string) {
 		if !exists { // New file
 			file = &File{
 				chunkCount:     res.ChunkCount,
-				MetaHash:       res.MetafileHash,
+				metaHash:       res.MetafileHash,
 				chunkLocations: make(map[uint64]map[string]struct{}),
 			}
 			fs.files[metaFileHash] = file
