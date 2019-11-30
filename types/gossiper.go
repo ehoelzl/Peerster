@@ -423,8 +423,8 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 
 	if sr.Destination == gp.Name {
 		sr.Print()
-		gp.FullMatches.Add(sr.Results, sr.Origin)
-		gp.Files.AddSearchResults(sr.Results, sr.Origin)
+		gp.FullMatches.Add(sr.Results, sr.Origin) // Add to full match count
+		gp.Files.AddSearchResults(sr.Results, sr.Origin) // Add to files
 	} else {
 		sr.HopLimit -= 1
 		gp.SendToNextHop(&GossipPacket{SearchReply: sr}, sr.Destination)
