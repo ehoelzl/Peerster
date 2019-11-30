@@ -439,9 +439,33 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 }
 
 func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
-	// Store TLC if new
-	// Check if valid (always valid for ex2
-	// Acknowledge if stored and valid
+	gp.Rumors.AddTLCMessage(tlc)
+	go gp.SendStatusMessage(from)                  // Send back status
+	gp.Routing.UpdateRoute(tlc.Origin, from, true) // Never print DSDV
+
+	block := tlc.TxBlock
+	tx := block.Transaction
+	if tlc.Confirmed == -1 { // Unconfirmed message
+		fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n", tlc.Origin, tlc.ID, tx.Name, tx.Size, tx.MetaFileHash)
+		isValid := true // for now
+		if isValid {
+			ack := &TLCAck{
+				Origin:      gp.Name,
+				ID:          tlc.ID,
+				Destination: tlc.Origin,
+				HopLimit:    gp.hopLimit - 1,
+			}
+			fmt.Printf("SENDING ACK origin %v ID %v\n", tlc.Origin, tlc.ID)
+			gp.SendToNextHop(&GossipPacket{Ack: ack}, ack.Destination) // Send ACK
+
+			except := map[string]struct{}{from.String(): struct{}{}}
+			gp.StartRumormongering(&GossipPacket{TLCMessage: tlc}, except, false, true) // Monger the tlcMessage
+		}
+	} else if tlc.Confirmed == int(tlc.ID) {
+		fmt.Printf("CONFIRMED GOSSIP origin %v ID %v file name %v size %v metaHash %v\n", tlc.Origin, tlc.ID, tx.Name, tx.Size, tx.MetaFileHash)
+	} else { // For now
+		return
+	}
 }
 
 func (gp *Gossiper) HandleTLCAck(from *net.UDPAddr, ack *TLCAck) {
