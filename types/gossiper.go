@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-var hopLimit uint32 = 10 // HopLimit for PrivateMessages and FileSharing
 var budgetLimit uint64 = 32
 var matchThreshold = 2
 
@@ -31,9 +30,10 @@ type Gossiper struct {
 	numNodes        uint64
 	stubbornTimeout uint64
 	hw3ex2          bool
+	hopLimit        uint32
 }
 
-func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int, numNodes uint64, stubbornTimeout uint64, hw3ex2 bool) (*Gossiper, bool) {
+func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int, numNodes uint64, stubbornTimeout uint64, hw3ex2 bool, hopLimit uint32) (*Gossiper, bool) {
 	// Creates new gossiper with the given parameters
 	clientAddr, err := net.ResolveUDPAddr("udp4", uiAddress)
 	utils.CheckFatalError(err, fmt.Sprintf("Could not resolve UI Address %v\n", uiAddress))
@@ -65,6 +65,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		numNodes:        numNodes,
 		stubbornTimeout: stubbornTimeout,
 		hw3ex2:          hw3ex2,
+		hopLimit:        hopLimit,
 	}
 
 	// AntiEntropy timer
@@ -127,7 +128,7 @@ func (gp *Gossiper) HandleClientPrivateMessage(message *Message) {
 		ID:          0,
 		Text:        message.Text,
 		Destination: *message.Destination,
-		HopLimit:    hopLimit - 1, // Decrement HopLimit at source node
+		HopLimit:    gp.hopLimit - 1, // Decrement HopLimit at source node
 	}
 
 	gp.SendToNextHop(&GossipPacket{Private: pm}, *message.Destination)
@@ -172,7 +173,7 @@ func (gp *Gossiper) HandleClientFileRequest(message *Message) {
 	// First request the MetaFile
 	metaRequest := &DataRequest{
 		Origin:    gp.Name,
-		HopLimit:  hopLimit - 1,
+		HopLimit:  gp.hopLimit - 1,
 		HashValue: metaHash,
 	}
 	var locations []string
@@ -341,7 +342,7 @@ func (gp *Gossiper) HandleDataRequest(from *net.UDPAddr, dr *DataRequest) {
 		reply := &DataReply{
 			Origin:      gp.Name,
 			Destination: dr.Origin,
-			HopLimit:    hopLimit - 1,
+			HopLimit:    gp.hopLimit - 1,
 			HashValue:   dr.HashValue,
 			Data:        chunk,
 		}
@@ -368,7 +369,7 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 		if hasNext && !nextChunk.available {
 			chunkRequest := &DataRequest{
 				Origin:    gp.Name,
-				HopLimit:  hopLimit - 1,
+				HopLimit:  gp.hopLimit - 1,
 				HashValue: nextChunk.Hash,
 			}
 			locations, hasLocations := gp.Files.GetFileChunkLocations(metaFileHash, nextChunkIndex)
@@ -397,7 +398,7 @@ func (gp *Gossiper) HandleSearchRequest(from *net.UDPAddr, sr *SearchRequest) {
 		searchReply := &SearchReply{
 			Origin:      gp.Name,
 			Destination: sr.Origin,
-			HopLimit:    hopLimit - 1,
+			HopLimit:    gp.hopLimit - 1,
 			Results:     results,
 		}
 		gp.SendToNextHop(&GossipPacket{SearchReply: searchReply}, sr.Origin)
