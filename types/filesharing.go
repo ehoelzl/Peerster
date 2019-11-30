@@ -48,9 +48,11 @@ type Files struct {
 	sync.RWMutex
 }
 
-func (f *File) getUnavailableChunk(index uint64) (*Chunk, bool) {
-	f.RLock()
-	defer f.RUnlock()
+func (f *File) getUnavailableChunk(index uint64, lock bool) (*Chunk, bool) {
+	if lock{
+		f.RLock()
+		defer f.RUnlock()
+	}
 	for _, c := range f.chunks {
 		if c.index == index && !c.available {
 			return c, true
@@ -111,7 +113,7 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (*Chunk, bool) {
 		f.size += int64(len(chunkData))            // Increase the size
 
 		nextIndex := chunk.index + 1
-		nextChunk, hasNextChunk := f.getUnavailableChunk(nextIndex) // Get next chunk
+		nextChunk, hasNextChunk := f.getUnavailableChunk(nextIndex, false) // Get next chunk
 
 		if !hasNextChunk { // If all chunks have been downloaded, truncate at size
 			if err := file.Truncate(f.size); err != nil {
@@ -429,7 +431,7 @@ func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile [
 
 	utils.CreateEmptyFile(filePath, int64(len(chunks))*chunkSize)
 
-	nextChunk, hasNext := file.getUnavailableChunk(1) // Get chunk at index 1
+	nextChunk, hasNext := file.getUnavailableChunk(1, true) // Get chunk at index 1
 	return nextChunk, hasNext
 }
 
