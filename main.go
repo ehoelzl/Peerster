@@ -42,11 +42,14 @@ func main() {
 	simple := flag.Bool("simple", false, "run gossiper in simple broadcast mode")
 	antiEntropy := flag.Uint("antiEntropy", 10, "Use given timeout in seconds for anti-entropy. If the flag is absent, the default anti-entropy duration is 10 seconds")
 	rtimer := flag.Int("rtimer", 0, "Timeout in seconds to send route rumors. 0 (default) means disable sending route rumors.")
+	numNodes := flag.Uint64("N", 1, "total number of peers in network (including this node)")
+	stubbornTimeout := flag.Uint64("stubbornTimeout", 5, "stubborn time out when sending TLCMessage")
+	hw3ex2 := flag.Bool("hw3ex2", false, "flag to use for HW3Ex2")
 
 	flag.Parse()
 	CLIAddress := "127.0.0.1:" + *uiPort
 	//GUIListen := "127.0.0.1:8080"
-	gp, created := NewGossiper(CLIAddress, *gossipAddr, *name, *peers, *simple, *antiEntropy, *rtimer)
+	gp, created := NewGossiper(CLIAddress, *gossipAddr, *name, *peers, *simple, *antiEntropy, *rtimer, *numNodes, *stubbornTimeout, *hw3ex2)
 	if created {
 		go NewServer(CLIAddress, gp)
 		go StartGossipListener(gp)

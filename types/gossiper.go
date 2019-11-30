@@ -28,9 +28,12 @@ type Gossiper struct {
 	PrivateMessages []*PrivateMessage
 	SearchRequests  *SearchRequests
 	FullMatches     *FullMatches
+	numNodes        uint64
+	stubbornTimeout uint64
+	hw3ex2          bool
 }
 
-func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int) (*Gossiper, bool) {
+func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int, numNodes uint64, stubbornTimeout uint64, hw3ex2 bool) (*Gossiper, bool) {
 	// Creates new gossiper with the given parameters
 	clientAddr, err := net.ResolveUDPAddr("udp4", uiAddress)
 	utils.CheckFatalError(err, fmt.Sprintf("Could not resolve UI Address %v\n", uiAddress))
@@ -47,18 +50,21 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 	log.Printf("Starting gossiper %v\n UIAddress: %v\n GossipAddress %v\n Peers %v\n\n", name, clientAddr, gossipAddr, initialPeers)
 
 	gossiper := &Gossiper{
-		ClientAddress:  clientAddr,
-		ClientConn:     clientConn,
-		GossipAddress:  gossipAddr,
-		GossipConn:     gossipConn,
-		Name:           name,
-		IsSimple:       simple,
-		Nodes:          InitNodes(initialPeers),
-		Rumors:         InitRumorStruct(name),
-		Routing:        InitRoutingTable(),
-		Files:          InitFilesStruct(),
-		SearchRequests: InitSearchRequests(),
-		FullMatches:    InitFullMatches(),
+		ClientAddress:   clientAddr,
+		ClientConn:      clientConn,
+		GossipAddress:   gossipAddr,
+		GossipConn:      gossipConn,
+		Name:            name,
+		IsSimple:        simple,
+		Nodes:           InitNodes(initialPeers),
+		Rumors:          InitRumorStruct(name),
+		Routing:         InitRoutingTable(),
+		Files:           InitFilesStruct(),
+		SearchRequests:  InitSearchRequests(),
+		FullMatches:     InitFullMatches(),
+		numNodes:        numNodes,
+		stubbornTimeout: stubbornTimeout,
+		hw3ex2:          hw3ex2,
 	}
 
 	// AntiEntropy timer
@@ -359,7 +365,7 @@ func (gp *Gossiper) HandleDataReply(from *net.UDPAddr, dr *DataReply) {
 
 		nextChunk, hasNext := gp.Files.GetFileChunk(metaFileHash, nextChunkIndex)
 		fileName := gp.Files.GetFileName(metaFileHash)
-		if hasNext && !nextChunk.available{
+		if hasNext && !nextChunk.available {
 			chunkRequest := &DataRequest{
 				Origin:    gp.Name,
 				HopLimit:  hopLimit - 1,
@@ -423,7 +429,7 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 
 	if sr.Destination == gp.Name {
 		sr.Print()
-		gp.FullMatches.Add(sr.Results, sr.Origin) // Add to full match count
+		gp.FullMatches.Add(sr.Results, sr.Origin)        // Add to full match count
 		gp.Files.AddSearchResults(sr.Results, sr.Origin) // Add to files
 	} else {
 		sr.HopLimit -= 1
