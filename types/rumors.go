@@ -6,15 +6,15 @@ import (
 
 /*PeerRumors is an encapsulation of all the messages with one origin (the peer)*/
 type PeerRumors struct {
-	nextId uint32
-	Rumors map[uint32]*RumorMessage
+	nextId      uint32
+	Rumors      map[uint32]*RumorMessage
 	TLCMessages map[uint32]*TLCMessage
 }
 
 func newPeerRumors() *PeerRumors {
 	return &PeerRumors{
-		nextId: 1,
-		Rumors: make(map[uint32]*RumorMessage),
+		nextId:      1,
+		Rumors:      make(map[uint32]*RumorMessage),
 		TLCMessages: make(map[uint32]*TLCMessage),
 	}
 }
@@ -22,7 +22,7 @@ func newPeerRumors() *PeerRumors {
 func (p *PeerRumors) addRumor(rumor *RumorMessage) bool {
 	/*Adds the given rumor to the struct, and increments nextId accordingly (accepts rumors when ID >= nextID*/
 	isNewRumor := false
-	if _, ok := p.Rumors[rumor.ID]; rumor.ID >= p.nextId && !ok{ // New message
+	if _, ok := p.Rumors[rumor.ID]; rumor.ID >= p.nextId && !ok { // New message
 		isNewRumor = true
 		p.Rumors[rumor.ID] = rumor // Add new message to list
 		if rumor.ID == p.nextId {  // Update
@@ -36,8 +36,8 @@ func (p *PeerRumors) addRumor(rumor *RumorMessage) bool {
 func (p *PeerRumors) fixNextId() {
 	_, hasRumor := p.Rumors[p.nextId]
 	_, hasTLC := p.TLCMessages[p.nextId]
-	for ;hasRumor || hasTLC; { // Means the Next ID should be incremented
-		p.nextId +=1
+	for ; hasRumor || hasTLC; { // Means the Next ID should be incremented
+		p.nextId += 1
 		_, hasRumor = p.Rumors[p.nextId]
 		_, hasTLC = p.TLCMessages[p.nextId]
 	}
@@ -46,10 +46,10 @@ func (p *PeerRumors) fixNextId() {
 func (p *PeerRumors) addTLCMessage(tlc *TLCMessage) bool {
 	/*Adds the given rumor to the struct, and increments nextId accordingly (accepts rumors when ID >= nextID*/
 	isNewTLC := false
-	if _, ok := p.TLCMessages[tlc.ID]; tlc.ID >= p.nextId && !ok{ // New message
+	if _, ok := p.TLCMessages[tlc.ID]; tlc.ID >= p.nextId && !ok { // New message
 		isNewTLC = true
 		p.TLCMessages[tlc.ID] = tlc // Add new TLCMessage to list
-		if tlc.ID == p.nextId {  // Update
+		if tlc.ID == p.nextId {     // Update
 			p.nextId += 1
 		}
 		p.fixNextId()
@@ -60,7 +60,8 @@ func (p *PeerRumors) addTLCMessage(tlc *TLCMessage) bool {
 /*======================= Definition of A Collection of peers =======================*/
 /*Data structure that encapsulates all the RumorMessages and their origin*/
 type Rumors struct {
-	rumors map[string]*PeerRumors
+	rumors  map[string]*PeerRumors
+	tlcAcks map[uint32][]*TLCAck
 	sync.RWMutex
 }
 
@@ -91,10 +92,10 @@ func (r *Rumors) CreateNewTLCMessage(origin string, confirmed int, txBlock Block
 	r.RLock()
 	defer r.RUnlock()
 	tlc := &TLCMessage{
-		Origin:      origin,
-		ID:          r.rumors[origin].nextId,
-		Confirmed:   confirmed,
-		TxBlock:     txBlock,
+		Origin:    origin,
+		ID:        r.rumors[origin].nextId,
+		Confirmed: confirmed,
+		TxBlock:   txBlock,
 	}
 	return tlc
 }
@@ -150,7 +151,7 @@ func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool,
 	// First check if they have missing messages
 	for identifier, peer := range r.rumors {
 		nextId, ok := statusMap[identifier]
-		if !ok && peer.nextId > 1{ // The peer is not present in their status, and has new messages
+		if !ok && peer.nextId > 1 { // The peer is not present in their status, and has new messages
 			message = peer.Rumors[1]
 			return message, true, false // Send pack first message
 		} else if ok && nextId < peer.nextId { // They have missing messages from this peer
@@ -163,7 +164,7 @@ func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool,
 	for _, status := range statusPacket.Want {
 		elem, ok := r.rumors[status.Identifier]
 		if !ok { // If peer not present locally, check if they have at least one message
-			if status.NextID > 1{
+			if status.NextID > 1 {
 				return nil, false, true
 			}
 		} else if status.NextID > elem.nextId { //check if their NextId is bigger then mine
