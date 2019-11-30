@@ -49,13 +49,13 @@ func (sr *SearchRequests) AddRequest(request *SearchRequest) bool {
 }
 
 type FullMatches struct {
-	matches map[string]map[string]struct{}
+	matches map[string]map[string]map[string]struct{} // hash => filename => origin
 	sync.RWMutex
 }
 
 func InitFullMatches() *FullMatches {
 	return &FullMatches{
-		matches: make(map[string]map[string]struct{}),
+		matches: make(map[string]map[string]map[string]struct{}),
 	}
 }
 
@@ -65,11 +65,13 @@ func (fm *FullMatches) Add(sr []*SearchResult, origin string) {
 	for _, s := range sr {
 		hash := utils.ToHex(s.MetafileHash)
 		if uint64(len(s.ChunkMap)) == s.ChunkCount { // Full match
-			if _, ok := fm.matches[hash]; ok {
-				fm.matches[hash][origin] = struct{}{}
-			} else {
-				fm.matches[hash] = map[string]struct{}{origin: struct{}{}}
+			if _, ok := fm.matches[hash]; !ok { // No matches for this hash
+				fm.matches[hash] = make(map[string]map[string]struct{})
 			}
+			if _, ok := fm.matches[hash][s.FileName]; !ok { // No matches for this (hash, filename)
+				fm.matches[hash][s.FileName] = make(map[string]struct{})
+			}
+			fm.matches[hash][s.FileName][origin] = struct{}{}
 		}
 	}
 }
@@ -77,7 +79,7 @@ func (fm *FullMatches) Add(sr []*SearchResult, origin string) {
 func (fm *FullMatches) Reset() {
 	fm.Lock()
 	defer fm.Unlock()
-	fm.matches = make(map[string]map[string]struct{})
+	fm.matches = make(map[string]map[string]map[string]struct{})
 }
 
 func (fm *FullMatches) AboveThreshold(threshold int) bool {
@@ -86,9 +88,14 @@ func (fm *FullMatches) AboveThreshold(threshold int) bool {
 	if len(fm.matches) >= threshold {
 		return true
 	}
-	for _, matches := range fm.matches {
-		if len(matches) >= threshold {
+	for _, hashMatches := range fm.matches {
+		if len(hashMatches) >= threshold {
 			return true
+		}
+		for _, originMatch := range hashMatches {
+			if len(originMatch) >= threshold {
+				return true
+			}
 		}
 	}
 	return false
