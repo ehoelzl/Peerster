@@ -27,7 +27,7 @@ type Gossiper struct {
 	PrivateMessages []*PrivateMessage
 	SearchRequests  *SearchRequests
 	FullMatches     *FullMatches
-	numNodes        uint64
+	TLC             *TLC
 	stubbornTimeout uint64
 	hw3ex2          bool
 	hopLimit        uint32
@@ -62,7 +62,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		Files:           InitFilesStruct(),
 		SearchRequests:  InitSearchRequests(),
 		FullMatches:     InitFullMatches(),
-		numNodes:        numNodes,
+		TLC:             InitTLCStruct(numNodes, name),
 		stubbornTimeout: stubbornTimeout,
 		hw3ex2:          hw3ex2,
 		hopLimit:        hopLimit,
@@ -155,11 +155,34 @@ func (gp *Gossiper) HandleClientRumorMessage(message *Message) {
 }
 
 func (gp *Gossiper) HandleFileIndexing(message *Message) {
-	_, indexed := gp.Files.IndexNewFile(*message.File)
+	file, indexed := gp.Files.IndexNewFile(*message.File)
 	if !indexed {
 		return
 	}
 	// Create function that does the TLCMessage (unconfirmed, and start timer that stops when
+	tx := TxPublish{
+		Name:         file.filename,
+		Size:         file.size,
+		MetaFileHash: file.metaHash,
+	}
+	tlc := gp.Rumors.CreateNewTLCMessage(gp.Name, -1, BlockPublish{Transaction: tx})
+	added := gp.Rumors.AddTLCMessage(tlc)
+	if added {
+		gp.TLC.AddUnconfirmed(tlc.ID) // Add to accumulate ACKS
+
+		packet := &GossipPacket{TLCMessage: tlc}
+
+		// Register callback that runs until we have majority of acks
+		callback := func() {
+			fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n",
+				tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
+			gp.StartRumormongering(packet, nil, false, true)
+		}
+		gp.TLC.RegisterTicker(tlc.ID, time.Duration(gp.stubbornTimeout), callback)
+
+		// Start RumorMongering
+		callback()
+	}
 }
 
 func (gp *Gossiper) HandleClientFileRequest(message *Message) {
@@ -299,7 +322,7 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 
 	status.PrintStatusMessage(from) // Print the received status and known nodes
 	gp.Nodes.Print()
-	lastPacket, isAck := gp.Nodes.CheckTimeouts(from)                       // Check if any timer for the sending node
+	lastPacket, isAck := gp.Nodes.CheckTimeouts(from)                      // Check if any timer for the sending node
 	missingPacket, isMissing, amMissing := gp.Rumors.CompareStatus(status) // Compare the statuses
 	inSync := !(isMissing || amMissing)
 
@@ -442,6 +465,9 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 }
 
 func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
+	if tlc.Origin == gp.Name {
+		return
+	}
 	gp.Rumors.AddTLCMessage(tlc)
 	go gp.SendStatusMessage(from)                  // Send back status
 	gp.Routing.UpdateRoute(tlc.Origin, from, true) // Never print DSDV
@@ -449,7 +475,8 @@ func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 	block := tlc.TxBlock
 	tx := block.Transaction
 	if tlc.Confirmed == -1 { // Unconfirmed message
-		fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n", tlc.Origin, tlc.ID, tx.Name, tx.Size, tx.MetaFileHash)
+		fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n",
+			tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
 		isValid := true // for now
 		if isValid {
 			ack := &TLCAck{
@@ -466,10 +493,9 @@ func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 			except := map[string]struct{}{from.String(): struct{}{}}
 			gp.StartRumormongering(&GossipPacket{TLCMessage: tlc}, except, false, true) // Monger the tlcMessage
 		}
-	} else if tlc.Confirmed == int(tlc.ID) {
-		fmt.Printf("CONFIRMED GOSSIP origin %v ID %v file name %v size %v metaHash %v\n", tlc.Origin, tlc.ID, tx.Name, tx.Size, tx.MetaFileHash)
-	} else { // For now
-		return
+	} else {
+		fmt.Printf("CONFIRMED GOSSIP origin %v ID %v file name %v size %v metaHash %v\n",
+			tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
 	}
 }
 
@@ -478,8 +504,22 @@ func (gp *Gossiper) HandleTLCAck(from *net.UDPAddr, ack *TLCAck) {
 		return
 	}
 	if ack.Destination == gp.Name {
-		// Add ack to corresponding TLC Message
-		// If majority reached, send TLC again, with corresponding Fields
+		if isWaiting := gp.TLC.AddAck(ack); !isWaiting { // Check if we were waiting for this ACK ID
+			return
+		} else if gp.TLC.HasMajority(ack.ID) { // Re broadcast
+			gp.TLC.StopTicker(ack.ID)             // Stop the running ticker
+			witnesses := gp.TLC.ClearAcks(ack.ID) // Clear acks
+
+			block, ok := gp.Rumors.GetTLCMessageBlock(gp.Name, ack.ID) // get the blockPublish corresponding
+			if !ok {
+				log.Printf("Could not find TLCMessage with ID %v \n", ack.ID)
+			}
+			reBroadcast := gp.Rumors.CreateNewTLCMessage(gp.Name, int(ack.ID), *block)
+			gp.Rumors.AddTLCMessage(reBroadcast)
+			fmt.Printf("RE-BROADCAST %v WITNESSES %v\n", ack.ID, witnesses)
+			gp.StartRumormongering(&GossipPacket{TLCMessage: reBroadcast}, nil, false, true)
+		}
+
 	} else {
 		ack.HopLimit -= 1
 		gp.SendToNextHop(&GossipPacket{Ack: ack}, ack.Destination)

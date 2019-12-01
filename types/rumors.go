@@ -70,7 +70,6 @@ func (p *PeerRumors) getPacketAt(index uint32) *GossipPacket {
 /*Data structure that encapsulates all the RumorMessages and their origin*/
 type Rumors struct {
 	rumors  map[string]*PeerRumors
-	tlcAcks map[uint32][]*TLCAck
 	sync.RWMutex
 }
 
@@ -147,6 +146,18 @@ func (r *Rumors) GetStatusPacket() *StatusPacket {
 		statusMessages = append(statusMessages, PeerStatus{Identifier: pName, NextID: p.nextId})
 	}
 	return &StatusPacket{Want: statusMessages}
+}
+
+func (r *Rumors) GetTLCMessageBlock(name string, uid uint32) (*BlockPublish, bool) {
+	r.RLock()
+	defer r.RUnlock()
+	if peer, ok := r.rumors[name]; ok {
+		if tlc,ok := peer.TLCMessages[uid]; ok {
+			return &tlc.TxBlock, true
+		}
+	}
+	return nil, false
+
 }
 
 func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*GossipPacket, bool, bool) {
