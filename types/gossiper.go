@@ -31,9 +31,11 @@ type Gossiper struct {
 	stubbornTimeout uint64
 	hw3ex2          bool
 	hopLimit        uint32
+	hw3ex3 bool
+	ackAll bool
 }
 
-func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int, numNodes uint64, stubbornTimeout uint64, hw3ex2 bool, hopLimit uint32) (*Gossiper, bool) {
+func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int, numNodes uint64, stubbornTimeout uint64, hw3ex2 bool, hopLimit uint32, hw3ex3 bool, ackAll bool) (*Gossiper, bool) {
 	// Creates new gossiper with the given parameters
 	clientAddr, err := net.ResolveUDPAddr("udp4", uiAddress)
 	utils.CheckFatalError(err, fmt.Sprintf("Could not resolve UI Address %v\n", uiAddress))

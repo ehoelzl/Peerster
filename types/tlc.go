@@ -7,11 +7,25 @@ import (
 	"time"
 )
 
+type TLCRound struct {
+	clientMessage *TLCMessage
+	confirmedMessages map[uint32]*TLCMessage
+}
+
+func initTLCRound() *TLCRound {
+	return &TLCRound{
+		clientMessage:     nil,
+		confirmedMessages: make(map[uint32]*TLCMessage),
+	}
+}
+
 type TLC struct {
 	majority uint64
 	nodeName string
 	acks     map[uint32]map[string]struct{} // Set of all peers who acknowledged TLCMessage with this ID
 	tickers  map[uint32]chan bool
+	rounds   map[uint32]*TLCRound
+	currentRound uint32
 	sync.RWMutex
 }
 
