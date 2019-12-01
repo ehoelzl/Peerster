@@ -472,8 +472,7 @@ func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 	go gp.SendStatusMessage(from)                  // Send back status
 	gp.Routing.UpdateRoute(tlc.Origin, from, true) // Never print DSDV
 
-	block := tlc.TxBlock
-	tx := block.Transaction
+	tx := tlc.TxBlock.Transaction
 	if tlc.Confirmed == -1 { // Unconfirmed message
 		fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n",
 			tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
