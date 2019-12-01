@@ -57,6 +57,15 @@ func (p *PeerRumors) addTLCMessage(tlc *TLCMessage) bool {
 	return isNewTLC
 }
 
+func (p *PeerRumors) getPacketAt(index uint32) *GossipPacket {
+	if rumor, ok := p.Rumors[index]; ok {
+		return &GossipPacket{Rumor: rumor}
+	} else if tlc, ok := p.TLCMessages[index]; ok {
+		return &GossipPacket{TLCMessage: tlc}
+	}
+	return nil
+}
+
 /*======================= Definition of A Collection of peers =======================*/
 /*Data structure that encapsulates all the RumorMessages and their origin*/
 type Rumors struct {
@@ -140,23 +149,23 @@ func (r *Rumors) GetStatusPacket() *StatusPacket {
 	return &StatusPacket{Want: statusMessages}
 }
 
-func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*RumorMessage, bool, bool) { // TODO : adapt for TLCMessage
+func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*GossipPacket, bool, bool) {
 	/*Compares the given status to the struct, and returns the missingMessage, a flag indicating whether they are missing messages, and a flag if I am missing messages*/
 	r.RLock()
 	defer r.RUnlock()
 	statusMap := statusPacket.ToMap()
 
-	var message *RumorMessage
-
 	// First check if they have missing messages
 	for identifier, peer := range r.rumors {
 		nextId, ok := statusMap[identifier]
 		if !ok && peer.nextId > 1 { // The peer is not present in their status, and has new messages
-			message = peer.Rumors[1]
-			return message, true, false // Send pack first message
+			packet := peer.getPacketAt(1)
+
+			return packet, true, false // Send pack first message
 		} else if ok && nextId < peer.nextId { // They have missing messages from this peer
-			message = peer.Rumors[nextId] // Select the missing message
-			return message, true, false
+			packet := peer.getPacketAt(nextId) // Select the missing message
+
+			return packet, true, false
 		}
 	}
 

@@ -300,7 +300,7 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 	status.PrintStatusMessage(from) // Print the received status and known nodes
 	gp.Nodes.Print()
 	lastPacket, isAck := gp.Nodes.CheckTimeouts(from)                       // Check if any timer for the sending node
-	missingMessage, isMissing, amMissing := gp.Rumors.CompareStatus(status) // Compare the statuses
+	missingPacket, isMissing, amMissing := gp.Rumors.CompareStatus(status) // Compare the statuses
 	inSync := !(isMissing || amMissing)
 
 	if inSync {
@@ -311,7 +311,10 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 		}
 	} else {
 		if isMissing { // Means they are missing a message
-			gp.SendPacket(&GossipPacket{Rumor: missingMessage}, from) // Send back missing message
+			if missingPacket == nil {
+				log.Println("Inconsistency detected")
+			}
+			gp.SendPacket(missingPacket, from) // Send back missing message
 		} else if amMissing { // Means I am missing a message
 			gp.SendStatusMessage(from) // I have missing messages
 		}
@@ -455,9 +458,11 @@ func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 				Destination: tlc.Origin,
 				HopLimit:    gp.hopLimit - 1,
 			}
+			// Send ACK
 			fmt.Printf("SENDING ACK origin %v ID %v\n", tlc.Origin, tlc.ID)
-			gp.SendToNextHop(&GossipPacket{Ack: ack}, ack.Destination) // Send ACK
+			gp.SendToNextHop(&GossipPacket{Ack: ack}, ack.Destination)
 
+			// Continue rumor mongering
 			except := map[string]struct{}{from.String(): struct{}{}}
 			gp.StartRumormongering(&GossipPacket{TLCMessage: tlc}, except, false, true) // Monger the tlcMessage
 		}
