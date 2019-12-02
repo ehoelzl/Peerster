@@ -69,7 +69,7 @@ func (p *PeerRumors) getPacketAt(index uint32) *GossipPacket {
 /*======================= Definition of A Collection of peers =======================*/
 /*Data structure that encapsulates all the RumorMessages and their origin*/
 type Rumors struct {
-	rumors  map[string]*PeerRumors
+	rumors map[string]*PeerRumors
 	sync.RWMutex
 }
 
@@ -96,14 +96,19 @@ func (r *Rumors) CreateNewRumor(origin string, message string) *RumorMessage {
 	return rumor
 }
 
-func (r *Rumors) CreateNewTLCMessage(origin string, confirmed int, txBlock BlockPublish) *TLCMessage {
+func (r *Rumors) CreateNewTLCMessage(origin string, confirmed int, txBlock BlockPublish, withStatus bool) *TLCMessage {
 	r.RLock()
 	defer r.RUnlock()
+	var vectorClock *StatusPacket
+	if withStatus {
+		vectorClock = r.getStatusPacket()
+	}
 	tlc := &TLCMessage{
-		Origin:    origin,
-		ID:        r.rumors[origin].nextId,
-		Confirmed: confirmed,
-		TxBlock:   txBlock,
+		Origin:      origin,
+		ID:          r.rumors[origin].nextId,
+		Confirmed:   confirmed,
+		TxBlock:     txBlock,
+		VectorClock: vectorClock,
 	}
 	return tlc
 }
@@ -137,10 +142,7 @@ func (r *Rumors) AddTLCMessage(tlc *TLCMessage) bool {
 	return isNewTLC
 }
 
-func (r *Rumors) GetStatusPacket() *StatusPacket {
-	/*Constructs and returns the current status*/
-	r.RLock()
-	defer r.RUnlock()
+func (r *Rumors) getStatusPacket() *StatusPacket {
 	var statusMessages []PeerStatus
 	for pName, p := range r.rumors {
 		statusMessages = append(statusMessages, PeerStatus{Identifier: pName, NextID: p.nextId})
@@ -148,11 +150,19 @@ func (r *Rumors) GetStatusPacket() *StatusPacket {
 	return &StatusPacket{Want: statusMessages}
 }
 
+func (r *Rumors) GetStatusPacket() *StatusPacket {
+	/*Constructs and returns the current status*/
+	r.RLock()
+	defer r.RUnlock()
+	statusPacket := r.getStatusPacket()
+	return statusPacket
+}
+
 func (r *Rumors) GetTLCMessageBlock(name string, uid uint32) (*BlockPublish, bool) {
 	r.RLock()
 	defer r.RUnlock()
 	if peer, ok := r.rumors[name]; ok {
-		if tlc,ok := peer.TLCMessages[uid]; ok {
+		if tlc, ok := peer.TLCMessages[uid]; ok {
 			return &tlc.TxBlock, true
 		}
 	}
