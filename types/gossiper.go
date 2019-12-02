@@ -165,10 +165,13 @@ func (gp *Gossiper) HandleFileIndexing(message *Message) {
 	if !indexed {
 		return
 	}
+	if !gp.hw3ex2 || !gp.hw3ex3 { // In the case of other exs, do not send TLC
+		return
+	}
 	// Create function that does the TLCMessage (unconfirmed, and start timer that stops when
 	tx := TxPublish{
-		Name:         file.filename,
-		Size:         file.size,
+		Name:         file.Filename,
+		Size:         file.Size,
 		MetaFileHash: file.metaHash,
 	}
 	tlc := gp.Rumors.CreateNewTLCMessage(gp.Name, -1, BlockPublish{Transaction: tx}, gp.hw3ex3)
@@ -184,7 +187,7 @@ func (gp *Gossiper) HandleFileIndexing(message *Message) {
 		packet := &GossipPacket{TLCMessage: tlc}
 		// Register callback that runs until we have majority of acks
 		callback := func() {
-			fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n",
+			fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v Size %v metahash %v\n",
 				tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
 			gp.StartRumormongering(packet, nil, false, true)
 		}
@@ -510,7 +513,7 @@ func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 		gp.Rumors.AddTLCMessage(tlc)  // Add the message to the chain
 		go gp.SendStatusMessage(from) // Send status
 
-		fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n",
+		fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v Size %v metahash %v\n",
 			tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
 		isValid := true // for now
 		if isValid && shouldAck {
@@ -529,7 +532,7 @@ func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 			gp.StartRumormongering(&GossipPacket{TLCMessage: tlc}, except, false, true) // Monger the tlcMessage
 		}
 	} else {
-		fmt.Printf("CONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n",
+		fmt.Printf("CONFIRMED GOSSIP origin %v ID %v file name %v Size %v metahash %v\n",
 			tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
 		isNew := gp.Rumors.AddTLCMessage(tlc)
 		go gp.SendStatusMessage(from)

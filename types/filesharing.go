@@ -23,13 +23,13 @@ type Chunk struct {
 }
 
 type File struct {
-	filename       string
-	path           string
+	Filename       string
+	Path           string
 	metaFile       []byte
-	size           int64
+	Size           int64
 	chunks         map[string]*Chunk
 	chunkLocations map[uint64]map[string]struct{}
-	isDownloaded   bool
+	IsDownloaded   bool
 	isComplete     bool
 	chunkCount     uint64
 	metaHash       []byte
@@ -38,7 +38,7 @@ type File struct {
 type requestedChunk struct { // Structure for a requested chunk that has not yet been received
 	metaHash string    //Has of the associated metaFile
 	ticker   chan bool // Channel for running ticker
-	filename string    // filename
+	filename string    // Filename
 }
 
 type Files struct {
@@ -53,7 +53,7 @@ func (f *File) getChunkData(chunk *Chunk) []byte {
 	if !chunk.available {
 		return nil
 	}
-	exists, file, _ := utils.CheckAndOpenRead(f.path) // Open the file
+	exists, file, _ := utils.CheckAndOpenRead(f.Path) // Open the file
 	if !exists {
 		return nil
 	}
@@ -79,7 +79,7 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (uint64, bool) {
 
 	chunkHashString := utils.ToHex(chunkHash)
 	if chunk, ok := f.chunks[chunkHashString]; ok && !chunk.available { // Check that the chunk was not received already
-		file, exists := utils.CheckAndOpenWrite(f.path) // Open the file
+		file, exists := utils.CheckAndOpenWrite(f.Path) // Open the file
 		if !exists {
 			return 0, false
 		}
@@ -91,7 +91,7 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (uint64, bool) {
 			return 0, false
 		}
 		chunk.available = true          // Mark chunk as available
-		f.size += int64(len(chunkData)) // Increase the size
+		f.Size += int64(len(chunkData)) // Increase the Size
 
 		isDownloaded := true
 		for _, c := range f.chunks {
@@ -101,11 +101,11 @@ func (f *File) addChunk(chunkHash []byte, chunkData []byte) (uint64, bool) {
 			}
 		}
 
-		if isDownloaded { // If all chunks have been downloaded, truncate at size
-			if err := file.Truncate(f.size); err != nil {
+		if isDownloaded { // If all chunks have been downloaded, truncate at Size
+			if err := file.Truncate(f.Size); err != nil {
 				log.Println("Could not truncate file")
 			}
-			f.isDownloaded = true // Mark file as downloaded
+			f.IsDownloaded = true // Mark file as downloaded
 		}
 		if err := file.Close(); err != nil { // Close the file
 			return 0, false
@@ -157,7 +157,7 @@ func (f *File) searchResult() *SearchResult {
 
 	chunkCount := len(f.metaFile) / hashSize
 	return &SearchResult{
-		FileName:     f.filename,
+		FileName:     f.Filename,
 		MetafileHash: f.metaHash,
 		ChunkMap:     chunkMap,
 		ChunkCount:   uint64(chunkCount),
@@ -166,8 +166,8 @@ func (f *File) searchResult() *SearchResult {
 
 func (f *File) GetBlockPublish() BlockPublish {
 	txPublish := TxPublish{
-		Name:         f.filename,
-		Size:         f.size,
+		Name:         f.Filename,
+		Size:         f.Size,
 		MetaFileHash: f.metaHash,
 	}
 
@@ -204,13 +204,13 @@ func (fs *Files) IndexNewFile(filename string) (*File, bool) {
 	}
 
 	newFile := &File{
-		filename:     filename,
-		path:         filePath,
+		Filename:     filename,
+		Path:         filePath,
 		metaFile:     metaFile,
-		size:         fileSize,
+		Size:         fileSize,
 		chunks:       chunks,
 		metaHash:     metaHash[:],
-		isDownloaded: true,
+		IsDownloaded: true,
 	}
 
 	fs.files[hashString] = newFile
@@ -270,7 +270,7 @@ func (fs *Files) GetFileName(metaFileHash []byte) string {
 	fs.RLock()
 	defer fs.RUnlock()
 	if file, ok := fs.files[utils.ToHex(metaFileHash)]; ok {
-		return file.filename
+		return file.Filename
 	}
 	return ""
 }
@@ -281,7 +281,7 @@ func (fs *Files) IsDownloaded(metaFileHash []byte) bool {
 	fs.RLock()
 	defer fs.RUnlock()
 	if file, ok := fs.files[utils.ToHex(metaFileHash)]; ok {
-		return file.isDownloaded
+		return file.IsDownloaded
 	}
 	return false
 }
@@ -364,7 +364,7 @@ func (fs *Files) ParseDataReply(dr *DataReply) ([]byte, uint64) {
 }
 
 func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile []byte, origin string) (bool) {
-	/*Creates an empty File struct to start downloading, puts the path as downloadedDir*/
+	/*Creates an empty File struct to start downloading, puts the Path as downloadedDir*/
 	hashString := utils.ToHex(metaHash)
 	file, filePresent := fs.files[hashString]
 	if filePresent && file.metaFile != nil { // Check if we don't have the file already
@@ -389,9 +389,9 @@ func (fs *Files) createDownloadFile(filename string, metaHash []byte, metaFile [
 		fs.files[hashString] = file
 	}
 	file.metaFile = metaFile
-	file.path = filePath
+	file.Path = filePath
 	file.chunks = chunks
-	file.filename = filename
+	file.Filename = filename
 
 	utils.CreateEmptyFile(filePath, int64(len(chunks))*chunkSize)
 
@@ -463,8 +463,8 @@ func (fs *Files) SearchFiles(keywords []string) ([]*SearchResult, bool) {
 			continue
 		}
 		for _, f := range fs.files {
-			if _, ok := matches[f.filename]; !ok && strings.Contains(f.filename, k) { // Match for this name
-				matches[f.filename] = true
+			if _, ok := matches[f.Filename]; !ok && strings.Contains(f.Filename, k) { // Match for this name
+				matches[f.Filename] = true
 				result := f.searchResult()
 				if result != nil {
 					results = append(results, result)

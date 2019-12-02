@@ -89,6 +89,17 @@ func (s *Server) GetIdHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) GetFullMatches(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	jsonString := s.Gossiper.FullMatches.GetJsonString()
+
+	_, err := io.WriteString(w, string(jsonString))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func (s *Server) PostMessageHandler(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 
@@ -100,7 +111,12 @@ func (s *Server) PostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if mess.File == nil || (mess.File != nil && mess.Destination != nil) { // Private or rumor message, or file request
+	isFileIndex := (mess.File != nil) && (mess.Destination == nil) && (mess.Request == nil)
+	isFileRequest := (mess.File != nil) && (mess.Request != nil)
+	isRumorMessage := (len(mess.Text) > 0) && (mess.Destination == nil)
+	isPrivateMessage := (len(mess.Text) > 0) && (mess.Destination != nil)
+	isSearchRequest := mess.Keywords != nil
+	if isRumorMessage || isPrivateMessage || isFileRequest || isSearchRequest { // Private or rumor message, or file request
 		w.WriteHeader(http.StatusOK)
 		packetBytes, err := protobuf.Encode(&mess)
 		if err != nil {
@@ -109,13 +125,16 @@ func (s *Server) PostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		go s.Gossiper.HandleClientMessage(packetBytes)
-	} else { // File indexing
+	} else if isFileIndex { // File indexing
 		_, indexed := s.Gossiper.Files.IndexNewFile(*mess.File)
 		if indexed {
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.WriteHeader(http.StatusBadRequest)
 		}
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+		log.Println("Unknown GUI Command")
 	}
 
 }
@@ -159,6 +178,7 @@ func NewServer(addr string, gossiper *Gossiper) {
 	r.HandleFunc("/origins", server.GetOriginHandler).Methods("GET")
 	r.HandleFunc("/private", server.GetPrivateMessageHandler).Methods("GET")
 	r.HandleFunc("/files", server.GetFilesHandler).Methods("GET")
+	r.HandleFunc("/search", server.GetFullMatches).Methods("GET")
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./frontend/")))
 	handler := cors.Default().Handler(r)
 	srv := &http.Server{

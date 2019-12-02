@@ -9,8 +9,8 @@ function hexStringToByte(str) {
     }
 
     var a = [];
-    for (var i = 0, len = str.length; i < len; i+=2) {
-        a.push(parseInt(str.substr(i,2),16));
+    for (var i = 0, len = str.length; i < len; i += 2) {
+        a.push(parseInt(str.substr(i, 2), 16));
     }
 
     return new Uint8Array(a);
@@ -63,7 +63,11 @@ class NodesBox extends Component {
 
     refreshNodes() {
         $.getJSON('/node', function (data) {
-            this.setState(({nodes}) => ({nodes: data}))
+            if (data != null) {
+                this.setState(({nodes}) => ({nodes: data}))
+            } else {
+                this.setState(({nodes}) => ({nodes: []}))
+            }
         }.bind(this)).fail(function () {
             this.setState(({nodes}) => ({nodes: []}))
         }.bind(this))
@@ -270,13 +274,13 @@ class MessagePopUp extends Component {
 }
 
 class FileRequestPopUp extends Component {
-    state = {filename: "", filehash : ""}
+    state = {filename: "", filehash: ""}
 
     handleChange() {
-        if (event.target.name  == "filename"){
-            this.setState(({filename}) => ({filename : event.target.value}))
+        if (event.target.name == "filename") {
+            this.setState(({filename}) => ({filename: event.target.value}))
         } else {
-            this.setState(({filehash}) => ({filehash : event.target.value}))
+            this.setState(({filehash}) => ({filehash: event.target.value}))
         }
     }
 
@@ -360,7 +364,11 @@ class Origins extends Component {
                 type: 'POST',
                 url: '/message',
                 async: false,
-                data: JSON.stringify({"File": filename, "Destination": to, "Request": Array.from(hexStringToByte(filehash))}),
+                data: JSON.stringify({
+                    "File": filename,
+                    "Destination": to,
+                    "Request": Array.from(hexStringToByte(filehash))
+                }),
                 contentType: "application/json",
                 dataType: 'json',
                 error: (d, t, x) => {
@@ -383,17 +391,17 @@ class Origins extends Component {
             <div style="width: 60%; float: right; overflow: hidden">
             <button style="font-size: 10px; float: left; border-radius: 3px;" onClick=${
             () => {
-                    this.setState(({destination}) => ({destination: peer}));
-                    this.toggleMessagePopUp()
-                }
-            } >Send Private Message</button>
+                this.setState(({destination}) => ({destination: peer}));
+                this.toggleMessagePopUp()
+            }
+        } >Send Private Message</button>
             
             <button style="overflow: right; font-size: 10px; border-radius: 3px;" onClick=${
             () => {
-                    this.setState(({destination}) => ({destination: peer}));
-                    this.toggleFileRequestPopUp()
-                }
-            }>Request File</button>
+                this.setState(({destination}) => ({destination: peer}));
+                this.toggleFileRequestPopUp()
+            }
+        }>Request File</button>
             </div>
             </div>
     `
@@ -424,7 +432,7 @@ class Origins extends Component {
                <div style="float: left" class="is-special"> ${this.state.peers.length}</div>
         </div>
         <hr style="border-top: 2px"/>
-        <div class="peers" style="margin-bottom: 20px; overflow-y: scroll; max-height: 100px">
+        <div class="peers" style="margin-bottom: 20px; overflow-y: scroll; max-height: 120px">
             ${this.state.peers.map(p => this.renderPeerButton(p))}
         </div>
       </section>
@@ -468,7 +476,7 @@ class ShareFile extends Component {
 }
 
 class Files extends Component {
-    state = {files : {}}
+    state = {files: {}}
 
     refreshFiles() {
         $.getJSON('/files', function (data) {
@@ -485,6 +493,9 @@ class Files extends Component {
         var items = [];
         for (var fileHash in this.state.files) {
             var file = this.state.files[fileHash]
+            if (!file.IsDownloaded) {
+                continue
+            }
             var filename = file.Filename
             var size = file.Size
             items.push(html`
@@ -495,8 +506,8 @@ class Files extends Component {
                 </div>
             `)
 
-            return items
         }
+        return items
     }
 
     render() {
@@ -504,7 +515,7 @@ class Files extends Component {
         <section>
           <div style="padding-bottom: 20px">
             <div style="font-weight: bold; margin-bottom: 20px">Indexed files</div>
-             <div>
+             <div style="overflow-y: scroll; max-height: 120px">
                 ${this.renderFiles()}        
             </div>
           </div>
@@ -512,6 +523,161 @@ class Files extends Component {
     `
     }
 }
+
+class FileSearchPopUp extends Component {
+
+    state = {results: []}
+
+    refreshResults() {
+        $.getJSON('/search', function (data) {
+            if (data != null) {
+                this.setState(({results}) => ({results: data}))
+                console.log(data)
+            }
+        }.bind(this)).fail(function () {
+            this.setState(({results}) => ({results: []}))
+        }.bind(this))
+    }
+
+
+    renderResult(r) {
+        return html`
+            <div style="margin-bottom: 10px; margin-left: 20px; height: 30px; line-height: 30px">
+                <span style="float: left; margin-left: 75px; vertical-align: baseline; font-size: 15px">${r.FileName}</span>
+                <span style="float: left; margin-left: 75px; vertical-align: baseline; font-size: 10px">${r.MetafileHash}</span>
+                <span style="float: left; margin-left: 75px; vertical-align: baseline; font-size: 15px; margin-right: 90px">${r.Origin}</span>
+                ${this.renderButton(r.FileName, r.MetafileHash, r.Oriign)}
+            </div>
+        `
+    }
+
+    downloadFile(filename, hash, from) {
+        $.ajax({
+            type: 'POST',
+            url: '/message',
+            async: false,
+            data: JSON.stringify({
+                "File": filename,
+                "Destination": from,
+                "Request": Array.from(hexStringToByte(hash))
+            }),
+            contentType: "application/json",
+            dataType: 'json',
+            error: (d, t, x) => {
+                if (d.status == 400) {
+                    alert("Could not download file")
+                } else if (d.status == 200) {
+                    alert("Success")
+                }
+            }
+        })
+        this.props.toggle()
+    }
+
+    renderButton(filename, hash, origin) {
+        return html`
+                <button style="font-size: 12px; border-radius: 5px; height: 30px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" onClick=${
+            () => {
+                this.downloadFile(filename, hash, origin)
+            }
+        }>Download</button>
+    `
+    }
+
+    renderResults() {
+        return html`
+            ${this.state.results.map(r => this.renderResult(r))}
+        `
+    }
+
+    componentDidMount() {
+        this.refreshResults()
+        setInterval(() => this.refreshResults(), 1 * 1000)
+    }
+
+    render() {
+        return html`
+        <div class='popup'>
+          <div class='popup\_inner'>
+            <div style="text-align: center; margin-top: 30px; margin-bottom: 15px">Search Results</div>
+            <div style="margin-bottom: 15px; border-bottom: 2px dotted; margin-left: 20px">
+                <div style="margin-left: 75px; margin-right: 150px; float: left">FileName</div>
+                <div style="float: left; margin-right: 100px">Hash</div>
+                <div>Present At</div>
+            </div>
+            <div>
+                ${this.renderResults()}        
+            </div>
+          </div>
+        </div>
+    `
+    }
+}
+
+class FileSearch extends Component {
+    state = {keywords: "", searchPopUp: false};
+
+    handleChange(e) {
+        e.preventDefault()
+        this.setState(({keywords}) => ({keywords: e.target.value}))
+    }
+
+    handleSubmit(e) {
+        e.preventDefault()
+        if (this.state.keywords.length == 0) {
+            alert("Please enter a keyword")
+            return
+        }
+        $.ajax({
+            type: 'POST',
+            url: '/message',
+            async: false,
+            data: JSON.stringify({"Keywords": this.state.keywords, "Budget": 0}),
+            contentType: "application/json",
+            dataType: 'json',
+            error: (d, t, x) => {
+                if (d.status == 400) {
+                    alert("Could not initial search")
+                } else if (d.status == 200) {
+                    this.toggleSearchPopUp()
+                    //alert("Search Running")
+                }
+            }
+        })
+        this.setState(({keywords}) => ({keywords: ""}))
+    }
+
+    toggleSearchPopUp() {
+        this.setState(({searchPopUp}) => ({searchPopUp: !this.state.searchPopUp}))
+    }
+
+    renderPopUp() {
+        if (this.state.searchPopUp) {
+            console.log("Render")
+            return html`<${FileSearchPopUp} toggle=${this.toggleSearchPopUp.bind(this)}/>`
+        }
+    }
+
+    render() {
+        return html`
+        <section>
+          ${this.renderPopUp()}
+          <div style="padding-bottom: 20px">
+            <div style="font-weight: bold; margin-bottom: 20px">Search For File</div>
+            <hr style="border-top: 2px"/>
+            <form style="width: 300px" onSubmit=${this.handleSubmit.bind(this)}>
+                <label style="font-weight: normal">
+                    Keywords:
+                 <input type="text" value=${this.state.keywords} onChange=${this.handleChange.bind(this)} style="background: white"/>
+                </label>
+                <input type="submit" value="Search" class="button"/>
+            </form>
+          </div>
+        </section>
+    `
+    }
+}
+
 class App extends Component {
     render() {
         return html`
@@ -528,6 +694,7 @@ class App extends Component {
           <div class="box e"><${Origins}/></div>
           <div class="box f"><${ShareFile}/></div>
           <div class="box g"><${Files}/></div>
+          <div class="box h"><${FileSearch}/></div>
        </div>
       </section>
     `

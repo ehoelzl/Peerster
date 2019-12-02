@@ -1,7 +1,9 @@
 package types
 
 import (
+	"encoding/json"
 	"github.com/ehoelzl/Peerster/utils"
+	"log"
 	"sync"
 	"time"
 )
@@ -48,8 +50,14 @@ func (sr *SearchRequests) AddRequest(request *SearchRequest) bool {
 	return !duplicated
 }
 
+type UIMatch struct {
+	Origin       string
+	MetafileHash string
+	FileName     string
+}
 type FullMatches struct {
-	matches map[string]map[string]map[string]struct{} // hash => filename => origin
+	matches map[string]map[string]map[string]struct{} // hash => Filename => origin
+	orderedMatches []*UIMatch
 	sync.RWMutex
 }
 
@@ -68,10 +76,17 @@ func (fm *FullMatches) Add(sr []*SearchResult, origin string) {
 			if _, ok := fm.matches[hash]; !ok { // No matches for this hash
 				fm.matches[hash] = make(map[string]map[string]struct{})
 			}
-			if _, ok := fm.matches[hash][s.FileName]; !ok { // No matches for this (hash, filename)
+			if _, ok := fm.matches[hash][s.FileName]; !ok { // No matches for this (hash, Filename)
 				fm.matches[hash][s.FileName] = make(map[string]struct{})
 			}
-			fm.matches[hash][s.FileName][origin] = struct{}{}
+			if _, ok := fm.matches[hash][s.FileName][origin]; !ok {
+				fm.matches[hash][s.FileName][origin] = struct{}{}
+				fm.orderedMatches = append(fm.orderedMatches, &UIMatch{
+					Origin:       origin,
+					MetafileHash: utils.ToHex(s.MetafileHash),
+					FileName:     s.FileName,
+				})
+			}
 		}
 	}
 }
@@ -80,6 +95,7 @@ func (fm *FullMatches) Reset() {
 	fm.Lock()
 	defer fm.Unlock()
 	fm.matches = make(map[string]map[string]map[string]struct{})
+	fm.orderedMatches = nil
 }
 
 func (fm *FullMatches) AboveThreshold(threshold int) bool {
@@ -99,4 +115,15 @@ func (fm *FullMatches) AboveThreshold(threshold int) bool {
 		}
 	}
 	return false
+}
+
+func (fm *FullMatches) GetJsonString() []byte {
+	fm.RLock()
+	defer fm.RUnlock()
+	jsonString, err := json.Marshal(fm.orderedMatches)
+	if err != nil {
+		log.Println("Could not marshall matches")
+		return nil
+	}
+	return jsonString
 }
