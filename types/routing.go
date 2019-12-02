@@ -1,11 +1,11 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"sync"
 )
-
 
 type RoutingTable struct {
 	table map[string]*net.UDPAddr
@@ -35,6 +35,15 @@ func (rt *RoutingTable) GetNextHop(destination string) (*net.UDPAddr, bool) {
 	defer rt.RUnlock()
 	address, ok := rt.table[destination]
 	return address, ok
+}
+
+func (rt *RoutingTable) GetJsonString() []byte {
+	var origins []string
+	for o, _ := range rt.table {
+		origins = append(origins, o)
+	}
+	jsonString, _ := json.Marshal(origins)
+	return jsonString
 }
 
 func (rt *RoutingTable) GetAllOrigins() map[string]*net.UDPAddr {

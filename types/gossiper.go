@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/dedis/protobuf"
 	"github.com/ehoelzl/Peerster/utils"
@@ -675,4 +676,19 @@ func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *D
 			fmt.Printf("DOWNLOADING %v chunk %v from %v\n", filename, chunkId, destination)
 		}
 	}
+}
+
+
+func (gp *Gossiper) MarshallPrivateMessages() []byte {
+	response := make(map[string][]string) // Prepare map for response
+
+	for _, m := range gp.PrivateMessages {
+		if elem, ok := response[m.Origin]; ok {
+			response[m.Origin] = append(elem, m.Text)
+		} else {
+			response[m.Origin] = []string{m.Text}
+		}
+	}
+	jsonString, _ := json.Marshal(response)
+	return jsonString
 }

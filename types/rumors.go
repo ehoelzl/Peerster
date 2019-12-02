@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"sync"
 )
 
@@ -204,9 +205,23 @@ func (r *Rumors) CompareStatus(statusPacket *StatusPacket) (*GossipPacket, bool,
 	return nil, false, false
 }
 
-func (r *Rumors) GetAll() map[string]*PeerRumors {
+func (r *Rumors) GetRumorsJsonString() []byte {
 	/*Returns all the rumors in the struct*/
 	r.RLock()
 	defer r.RUnlock()
-	return r.rumors
+	response := make(map[string]map[uint32]string) // Prepare map for response
+
+	for identifier, p := range r.rumors {
+		messages := make(map[uint32]string)
+		for _, m := range p.Rumors {
+			if len(m.Text) > 0 {  // Only get non-route rumors
+				messages[m.ID] = m.Text
+			}
+		}
+		if len(messages) > 0 {
+			response[identifier] = messages
+		}
+	}
+	jsonString, _ := json.Marshal(response)
+	return jsonString
 }

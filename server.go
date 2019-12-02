@@ -21,21 +21,7 @@ type Server struct {
 func (s *Server) GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	rumors := s.Gossiper.Rumors.GetAll()
-	response := make(map[string]map[uint32]string) // Prepare map for response
-
-	for identifier, p := range rumors {
-		messages := make(map[uint32]string)
-		for _, m := range p.Rumors {
-			if len(m.Text) > 0 {
-				messages[m.ID] = m.Text
-			}
-		}
-		if len(messages) > 0 {
-			response[identifier] = messages
-		}
-	}
-	jsonString, _ := json.Marshal(response)
+	jsonString := s.Gossiper.Rumors.GetRumorsJsonString()
 	_, err := io.WriteString(w, string(jsonString))
 	if err != nil {
 		log.Fatal(err)
@@ -45,17 +31,7 @@ func (s *Server) GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) GetPrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	messages := s.Gossiper.PrivateMessages
-	response := make(map[string][]string) // Prepare map for response
-
-	for _, m := range messages {
-		if elem, ok := response[m.Origin]; ok {
-			response[m.Origin] = append(elem, m.Text)
-		} else {
-			response[m.Origin] = []string{m.Text}
-		}
-	}
-	jsonString, _ := json.Marshal(response)
+	jsonString := s.Gossiper.MarshallPrivateMessages()
 	_, err := io.WriteString(w, string(jsonString))
 	if err != nil {
 		log.Fatal(err)
@@ -92,12 +68,7 @@ func (s *Server) GetFilesHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) GetOriginHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	var origins []string
-	table := s.Gossiper.Routing.GetAllOrigins()
-	for o, _ := range table {
-		origins = append(origins, o)
-	}
-	jsonString, _ := json.Marshal(origins)
+	jsonString := s.Gossiper.Routing.GetJsonString()
 	_, err := io.WriteString(w, string(jsonString))
 	if err != nil {
 		log.Fatal(err)
