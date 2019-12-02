@@ -32,8 +32,8 @@ type Gossiper struct {
 	stubbornTimeout uint64
 	hw3ex2          bool
 	hopLimit        uint32
-	hw3ex3 bool
-	ackAll bool
+	hw3ex3          bool
+	ackAll          bool
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int, numNodes uint64, stubbornTimeout uint64, hw3ex2 bool, hopLimit uint32, hw3ex3 bool, ackAll bool) (*Gossiper, bool) {
@@ -69,6 +69,8 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		stubbornTimeout: stubbornTimeout,
 		hw3ex2:          hw3ex2,
 		hopLimit:        hopLimit,
+		hw3ex3:          hw3ex3,
+		ackAll:          ackAll,
 	}
 
 	// AntiEntropy timer
@@ -169,12 +171,16 @@ func (gp *Gossiper) HandleFileIndexing(message *Message) {
 		MetaFileHash: file.metaHash,
 	}
 	tlc := gp.Rumors.CreateNewTLCMessage(gp.Name, -1, BlockPublish{Transaction: tx}, gp.hw3ex3)
+	hasUnconfirmed := gp.TLC.HasUnconfirmed(gp.Name) // Check if we already have an unconfirmed message for the round
+
+	if hasUnconfirmed && gp.hw3ex3 { // Buffer it for next round
+		return
+	}
+
 	added := gp.Rumors.AddTLCMessage(tlc)
 	if added {
-		gp.TLC.AddUnconfirmed(tlc.ID) // Add to accumulate ACKS
-
+		gp.TLC.WaitForAcks(tlc.ID) // Add to accumulate ACKS
 		packet := &GossipPacket{TLCMessage: tlc}
-
 		// Register callback that runs until we have majority of acks
 		callback := func() {
 			fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n",
@@ -185,6 +191,10 @@ func (gp *Gossiper) HandleFileIndexing(message *Message) {
 
 		// Start RumorMongering
 		callback()
+		if gp.hw3ex3 {
+			gp.TLC.AddUnconfirmed(tlc.ID, gp.Name) // Record that we have a message for this round
+			gp.ShouldIncrementRound(tlc)           // Check if we can increment to next round
+		}
 	}
 }
 
@@ -337,9 +347,6 @@ func (gp *Gossiper) HandleStatusPacket(from *net.UDPAddr, status *StatusPacket) 
 		}
 	} else {
 		if isMissing { // Means they are missing a message
-			if missingPacket == nil {
-				log.Println("Inconsistency detected")
-			}
 			gp.SendPacket(missingPacket, from) // Send back missing message
 		} else if amMissing { // Means I am missing a message
 			gp.SendStatusMessage(from) // I have missing messages
@@ -468,19 +475,45 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 }
 
 func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
-	if tlc.Origin == gp.Name {
+	if tlc.Origin == gp.Name { // Ignore self TLCMessages
 		return
 	}
-	gp.Rumors.AddTLCMessage(tlc) // Add message if new
-	go gp.SendStatusMessage(from)                  // Send back status
 	gp.Routing.UpdateRoute(tlc.Origin, from, true) // Never print DSDV
 
+	if gp.hw3ex3 { // In ex3, check that vector clock is satisfied
+		_, _, notAccepted := gp.Rumors.CompareStatus(tlc.VectorClock) // Accepted if I have seen all messages before it
+
+		if notAccepted {
+			gp.SendStatusMessage(from)
+			// Add to buffer of future messages
+			return
+		}
+	}
+	// Until here, the TLCMessage is either in the same round, or in a previous round
+	isUnconfirmed := tlc.Confirmed == -1
 	tx := tlc.TxBlock.Transaction
-	if tlc.Confirmed == -1 { // Unconfirmed message
+
+	myRound := gp.TLC.GetMyRound(gp.Name)
+
+	if isUnconfirmed { // Unconfirmed message
+		shouldAck := true
+		if gp.hw3ex3 {
+			round, shouldIncrement := gp.TLC.GetUnconfirmedMessageRound(tlc)
+			log.Printf("Got unconfirmed message from %v at round %v, shouldIncrement=%v, myround=%v\n", tlc.Origin, round, shouldIncrement, myRound)
+			if shouldIncrement {
+				gp.TLC.IncrementRound(tlc.Origin) // Increment the round
+			}
+			gp.TLC.AddUnconfirmed(tlc.ID, tlc.Origin) // Record the unconfirmed message
+			shouldAck = round >= myRound || gp.ackAll
+		}
+
+		gp.Rumors.AddTLCMessage(tlc)  // Add the message to the chain
+		go gp.SendStatusMessage(from) // Send status
+
 		fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n",
 			tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
 		isValid := true // for now
-		if isValid {
+		if isValid && shouldAck {
 			ack := &TLCAck{
 				Origin:      gp.Name,
 				ID:          tlc.ID,
@@ -498,6 +531,24 @@ func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 	} else {
 		fmt.Printf("CONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n",
 			tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
+		isNew := gp.Rumors.AddTLCMessage(tlc)
+		go gp.SendStatusMessage(from)
+
+		if isNew && gp.hw3ex3 { // Only for HW3EX3
+			round := gp.TLC.GetConfirmedMessageRound(tlc)
+			if round == myRound {
+				gp.TLC.AddConfirmed(tlc.ID, tlc.Origin)
+				gp.ShouldIncrementRound(tlc)
+			}
+		}
+	}
+}
+
+func (gp *Gossiper) ShouldIncrementRound(tlc *TLCMessage) {
+	if gp.TLC.ShouldIncrementRound(gp.Name) {
+		currentRound, confirmedMessages := gp.TLC.IncrementMyRound(gp.Name)
+		toPrint := PrintTLCMessages(confirmedMessages)
+		fmt.Printf("ADVANCING TO round %v BASED ON CONFIRMED MESSAGES %v\n", currentRound, toPrint)
 	}
 }
 
@@ -512,14 +563,17 @@ func (gp *Gossiper) HandleTLCAck(from *net.UDPAddr, ack *TLCAck) {
 			gp.TLC.StopTicker(ack.ID)             // Stop the running ticker
 			witnesses := gp.TLC.ClearAcks(ack.ID) // Clear acks
 
-			block, ok := gp.Rumors.GetTLCMessageBlock(gp.Name, ack.ID) // get the blockPublish corresponding
-			if !ok {
-				log.Printf("Could not find TLCMessage with ID %v \n", ack.ID)
-			}
+			block, _ := gp.Rumors.GetTLCMessageBlock(gp.Name, ack.ID) // get the blockPublish corresponding
 			reBroadcast := gp.Rumors.CreateNewTLCMessage(gp.Name, int(ack.ID), *block, gp.hw3ex3)
 			gp.Rumors.AddTLCMessage(reBroadcast)
+
 			fmt.Printf("RE-BROADCAST %v WITNESSES %v\n", ack.ID, strings.Join(witnesses, ","))
 			gp.StartRumormongering(&GossipPacket{TLCMessage: reBroadcast}, nil, false, true)
+
+			if gp.hw3ex3 {
+				gp.TLC.AddConfirmed(reBroadcast.ID, reBroadcast.Origin) // Add message as confirmed
+				gp.ShouldIncrementRound(reBroadcast)                    // Check if we need to increment to next round
+			}
 		}
 
 	} else {
