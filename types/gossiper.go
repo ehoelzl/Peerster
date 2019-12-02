@@ -6,6 +6,7 @@ import (
 	"github.com/ehoelzl/Peerster/utils"
 	"log"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -167,7 +168,7 @@ func (gp *Gossiper) HandleFileIndexing(message *Message) {
 		Size:         file.size,
 		MetaFileHash: file.metaHash,
 	}
-	tlc := gp.Rumors.CreateNewTLCMessage(gp.Name, -1, BlockPublish{Transaction: tx})
+	tlc := gp.Rumors.CreateNewTLCMessage(gp.Name, -1, BlockPublish{Transaction: tx}, gp.hw3ex3)
 	added := gp.Rumors.AddTLCMessage(tlc)
 	if added {
 		gp.TLC.AddUnconfirmed(tlc.ID) // Add to accumulate ACKS
@@ -470,7 +471,7 @@ func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 	if tlc.Origin == gp.Name {
 		return
 	}
-	gp.Rumors.AddTLCMessage(tlc)
+	gp.Rumors.AddTLCMessage(tlc) // Add message if new
 	go gp.SendStatusMessage(from)                  // Send back status
 	gp.Routing.UpdateRoute(tlc.Origin, from, true) // Never print DSDV
 
@@ -495,7 +496,7 @@ func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 			gp.StartRumormongering(&GossipPacket{TLCMessage: tlc}, except, false, true) // Monger the tlcMessage
 		}
 	} else {
-		fmt.Printf("CONFIRMED GOSSIP origin %v ID %v file name %v size %v metaHash %v\n",
+		fmt.Printf("CONFIRMED GOSSIP origin %v ID %v file name %v size %v metahash %v\n",
 			tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
 	}
 }
@@ -515,9 +516,9 @@ func (gp *Gossiper) HandleTLCAck(from *net.UDPAddr, ack *TLCAck) {
 			if !ok {
 				log.Printf("Could not find TLCMessage with ID %v \n", ack.ID)
 			}
-			reBroadcast := gp.Rumors.CreateNewTLCMessage(gp.Name, int(ack.ID), *block)
+			reBroadcast := gp.Rumors.CreateNewTLCMessage(gp.Name, int(ack.ID), *block, gp.hw3ex3)
 			gp.Rumors.AddTLCMessage(reBroadcast)
-			fmt.Printf("RE-BROADCAST %v WITNESSES %v\n", ack.ID, witnesses)
+			fmt.Printf("RE-BROADCAST %v WITNESSES %v\n", ack.ID, strings.Join(witnesses, ","))
 			gp.StartRumormongering(&GossipPacket{TLCMessage: reBroadcast}, nil, false, true)
 		}
 
