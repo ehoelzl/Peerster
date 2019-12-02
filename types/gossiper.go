@@ -242,6 +242,7 @@ func (gp *Gossiper) HandleClientSearchRequest(message *Message) {
 		Keywords: utils.ParseKeyWords(*message.Keywords),
 	}
 
+	gp.FullMatches.Reset()
 	if budget > 0 { // Specified Budget
 		gp.PropagateSearchRequest(request, nil)
 	} else { // Not Specified, do something else
@@ -251,16 +252,11 @@ func (gp *Gossiper) HandleClientSearchRequest(message *Message) {
 
 func (gp *Gossiper) InitiateSearch(request *SearchRequest) {
 	var budget uint64 = 2
-	gp.FullMatches.Reset()
 	for budget <= budgetLimit && !gp.FullMatches.AboveThreshold(matchThreshold) {
 		request.Budget = budget
 		gp.PropagateSearchRequest(request, nil)
-
 		time.Sleep(1 * time.Second) // Sleep one second
 		budget *= 2
-	}
-	if gp.FullMatches.AboveThreshold(matchThreshold) {
-		fmt.Println("SEARCH FINISHED")
 	}
 }
 
@@ -468,6 +464,9 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 		sr.Print()
 		gp.FullMatches.Add(sr.Results, sr.Origin)        // Add to full match count
 		gp.Files.AddSearchResults(sr.Results, sr.Origin) // Add to files
+		if gp.FullMatches.AboveThreshold(matchThreshold) {
+			fmt.Println("SEARCH FINISHED")
+		}
 	} else {
 		sr.HopLimit -= 1
 		gp.SendToNextHop(&GossipPacket{SearchReply: sr}, sr.Destination)

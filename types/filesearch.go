@@ -64,7 +64,7 @@ func (fm *FullMatches) Add(sr []*SearchResult, origin string) {
 	defer fm.Unlock()
 	for _, s := range sr {
 		hash := utils.ToHex(s.MetafileHash)
-		if uint64(len(s.ChunkMap)) == s.ChunkCount { // Full match
+		if s.ChunkCount > 0 && uint64(len(s.ChunkMap)) == s.ChunkCount { // Full match
 			if _, ok := fm.matches[hash]; !ok { // No matches for this hash
 				fm.matches[hash] = make(map[string]map[string]struct{})
 			}
@@ -88,12 +88,12 @@ func (fm *FullMatches) AboveThreshold(threshold int) bool {
 	if len(fm.matches) >= threshold {
 		return true
 	}
-	for _, hashMatches := range fm.matches {
-		if len(hashMatches) >= threshold {
+	for _, filenames := range fm.matches {
+		if len(filenames) >= threshold {
 			return true
 		}
-		for _, originMatch := range hashMatches {
-			if len(originMatch) >= threshold {
+		for _, origins := range filenames {
+			if len(origins) >= threshold {
 				return true
 			}
 		}
