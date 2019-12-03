@@ -172,7 +172,7 @@ func (gp *Gossiper) HandleFileIndexing(message *Message) {
 	tx := TxPublish{
 		Name:         file.Filename,
 		Size:         file.Size,
-		MetaFileHash: file.metaHash,
+		MetafileHash: file.metaHash,
 	}
 	hasUnconfirmed := gp.TLC.HasUnconfirmed(gp.Name) // Check if we already have an unconfirmed message for the round
 
@@ -192,7 +192,7 @@ func (gp *Gossiper) SpreadTransaction(tx TxPublish) {
 		// Register callback that runs until we have majority of acks
 		callback := func() {
 			fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v Size %v metahash %v\n",
-				tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
+				tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetafileHash))
 			gp.StartRumormongering(packet, nil, false, true)
 		}
 		gp.TLC.RegisterTicker(tlc.ID, time.Duration(gp.stubbornTimeout), callback)
@@ -499,7 +499,7 @@ func (gp *Gossiper) HandleUnconfirmedTLC(from *net.UDPAddr, tlc *TLCMessage) {
 	}
 
 	fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v Size %v metahash %v\n",
-		tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
+		tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetafileHash))
 
 	isNew := gp.Rumors.AddTLCMessage(tlc) // Add message to list
 	go gp.SendStatusMessage(from)         // Send back status
@@ -528,7 +528,7 @@ func (gp *Gossiper) HandleConfirmedTLC(from *net.UDPAddr, tlc *TLCMessage) {
 	tx := tlc.TxBlock.Transaction
 
 	fmt.Printf("CONFIRMED GOSSIP origin %v ID %v file name %v Size %v metahash %v\n",
-		tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
+		tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetafileHash))
 	isNew := gp.Rumors.AddTLCMessage(tlc)
 	go gp.SendStatusMessage(from)
 

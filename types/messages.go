@@ -1,8 +1,11 @@
 package types
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"github.com/ehoelzl/Peerster/utils"
+	"log"
 	"net"
 	"strings"
 )
@@ -83,7 +86,7 @@ type SearchResult struct {
 type TxPublish struct {
 	Name         string
 	Size         int64
-	MetaFileHash []byte
+	MetafileHash []byte
 }
 
 type BlockPublish struct {
@@ -149,4 +152,25 @@ func (sr *SearchReply) Print() {
 
 func (sr *SearchRequest) IsDuplicate(other *SearchRequest) bool {
 	return (sr.Origin == other.Origin) && utils.StringSliceEqual(sr.Keywords, other.Keywords)
+}
+
+func (b *BlockPublish) Hash() (out [32]byte) {
+	h := sha256.New()
+	h.Write(b.PrevHash[:])
+	th := b.Transaction.Hash()
+	h.Write(th[:])
+	copy(out[:], h.Sum(nil))
+	return
+}
+
+func (t *TxPublish) Hash() (out [32]byte) {
+	h := sha256.New()
+	err := binary.Write(h, binary.LittleEndian, uint32(len(t.Name)))
+	if err != nil {
+		log.Println("Could not write binary tx.Hash")
+	}
+	h.Write([]byte(t.Name))
+	h.Write(t.MetafileHash)
+	copy(out[:], h.Sum(nil))
+	return
 }

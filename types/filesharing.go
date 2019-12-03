@@ -168,7 +168,7 @@ func (f *File) GetBlockPublish() BlockPublish {
 	txPublish := TxPublish{
 		Name:         f.Filename,
 		Size:         f.Size,
-		MetaFileHash: f.metaHash,
+		MetafileHash: f.metaHash,
 	}
 
 	return BlockPublish{
