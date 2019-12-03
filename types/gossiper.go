@@ -165,7 +165,7 @@ func (gp *Gossiper) HandleFileIndexing(message *Message) {
 	if !indexed {
 		return
 	}
-	if !gp.hw3ex2 || !gp.hw3ex3 { // In the case of other exs, do not send TLC
+	if !(gp.hw3ex2 || gp.hw3ex3) { // In the case of other exs, do not send TLC
 		return
 	}
 	// Create function that does the TLCMessage (unconfirmed, and start timer that stops when
@@ -174,13 +174,17 @@ func (gp *Gossiper) HandleFileIndexing(message *Message) {
 		Size:         file.Size,
 		MetaFileHash: file.metaHash,
 	}
-	tlc := gp.Rumors.CreateNewTLCMessage(gp.Name, -1, BlockPublish{Transaction: tx}, gp.hw3ex3)
 	hasUnconfirmed := gp.TLC.HasUnconfirmed(gp.Name) // Check if we already have an unconfirmed message for the round
 
 	if hasUnconfirmed && gp.hw3ex3 { // Buffer it for next round
+		gp.TLC.AddToTxBuffer(&tx)
 		return
 	}
+	gp.SpreadTransaction(tx)
+}
 
+func (gp *Gossiper) SpreadTransaction(tx TxPublish) {
+	tlc := gp.Rumors.CreateNewTLCMessage(gp.Name, -1, BlockPublish{Transaction: tx}, gp.hw3ex3)
 	added := gp.Rumors.AddTLCMessage(tlc)
 	if added {
 		gp.TLC.WaitForAcks(tlc.ID) // Add to accumulate ACKS
@@ -327,6 +331,9 @@ func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 
 		except := map[string]struct{}{from.String(): struct{}{}}                 // Monger with other nodes except this one
 		gp.StartRumormongering(&GossipPacket{Rumor: rumor}, except, false, true) // Start RumorMongering
+		if gp.hw3ex3 {
+			gp.CheckBufferedTLC() // Check any buffered tlc messages
+		}
 	}
 }
 
@@ -477,6 +484,64 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 	}
 }
 
+func (gp *Gossiper) HandleUnconfirmedTLC(from *net.UDPAddr, tlc *TLCMessage) {
+	myRound := gp.TLC.GetMyRound(gp.Name)
+	shouldAck := true
+	tx := tlc.TxBlock.Transaction
+	if gp.hw3ex3 {
+		round, shouldIncrement := gp.TLC.GetUnconfirmedMessageRound(tlc)
+		fmt.Printf("Got unconfirmed message from %v at round %v, shouldIncrement=%v, myround=%v\n", tlc.Origin, round, shouldIncrement, myRound)
+		if shouldIncrement {
+			gp.TLC.IncrementRound(tlc.Origin) // Increment the peer's round
+		}
+		gp.TLC.AddUnconfirmed(tlc.ID, tlc.Origin) // Record the unconfirmed message
+		shouldAck = round >= myRound || gp.ackAll
+	}
+
+	fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v Size %v metahash %v\n",
+		tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
+
+	isNew := gp.Rumors.AddTLCMessage(tlc) // Add message to list
+	go gp.SendStatusMessage(from)         // Send back status
+
+	isValid := true // for now
+	if isValid && shouldAck {
+		ack := &TLCAck{
+			Origin:      gp.Name,
+			ID:          tlc.ID,
+			Destination: tlc.Origin,
+			HopLimit:    gp.hopLimit - 1,
+		}
+		// Send ACK
+		fmt.Printf("SENDING ACK origin %v ID %v\n", tlc.Origin, tlc.ID)
+		gp.SendToNextHop(&GossipPacket{Ack: ack}, ack.Destination) // Ack message
+	}
+	// Continue rumor mongering
+	except := map[string]struct{}{from.String(): struct{}{}}
+	gp.StartRumormongering(&GossipPacket{TLCMessage: tlc}, except, false, true) // Monger the tlcMessage
+	if isNew && gp.hw3ex3 {
+		gp.CheckBufferedTLC() // Check any buffered tlc messages
+	}
+}
+
+func (gp *Gossiper) HandleConfirmedTLC(from *net.UDPAddr, tlc *TLCMessage) {
+	tx := tlc.TxBlock.Transaction
+
+	fmt.Printf("CONFIRMED GOSSIP origin %v ID %v file name %v Size %v metahash %v\n",
+		tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
+	isNew := gp.Rumors.AddTLCMessage(tlc)
+	go gp.SendStatusMessage(from)
+
+	except := map[string]struct{}{from.String(): struct{}{}}
+	gp.StartRumormongering(&GossipPacket{TLCMessage: tlc}, except, false, true) // Monger the tlcMessage
+
+	if isNew && gp.hw3ex3 { // Only for HW3EX3
+		gp.TLC.AddConfirmed(tlc.ID, tlc.Origin)
+		gp.ShouldIncrementRound(tlc)
+		gp.CheckBufferedTLC() // Check any buffered tlc messages
+	}
+}
+
 func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 	if tlc.Origin == gp.Name { // Ignore self TLCMessages
 		return
@@ -485,64 +550,29 @@ func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 
 	if gp.hw3ex3 { // In ex3, check that vector clock is satisfied
 		_, _, notAccepted := gp.Rumors.CompareStatus(tlc.VectorClock) // Accepted if I have seen all messages before it
-
 		if notAccepted {
 			gp.SendStatusMessage(from)
-			// Add to buffer of future messages
+			gp.TLC.AddToTLCBuffer(from, tlc) // Add the message to the buffer
+			fmt.Printf("Buffer TLC message from %v ID %v\n", tlc.Origin, tlc.ID)
 			return
 		}
 	}
 	// Until here, the TLCMessage is either in the same round, or in a previous round
 	isUnconfirmed := tlc.Confirmed == -1
-	tx := tlc.TxBlock.Transaction
-
-	myRound := gp.TLC.GetMyRound(gp.Name)
-
 	if isUnconfirmed { // Unconfirmed message
-		shouldAck := true
-		if gp.hw3ex3 {
-			round, shouldIncrement := gp.TLC.GetUnconfirmedMessageRound(tlc)
-			log.Printf("Got unconfirmed message from %v at round %v, shouldIncrement=%v, myround=%v\n", tlc.Origin, round, shouldIncrement, myRound)
-			if shouldIncrement {
-				gp.TLC.IncrementRound(tlc.Origin) // Increment the round
-			}
-			gp.TLC.AddUnconfirmed(tlc.ID, tlc.Origin) // Record the unconfirmed message
-			shouldAck = round >= myRound || gp.ackAll
-		}
-
-		gp.Rumors.AddTLCMessage(tlc)  // Add the message to the chain
-		go gp.SendStatusMessage(from) // Send status
-
-		fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v Size %v metahash %v\n",
-			tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
-		isValid := true // for now
-		if isValid && shouldAck {
-			ack := &TLCAck{
-				Origin:      gp.Name,
-				ID:          tlc.ID,
-				Destination: tlc.Origin,
-				HopLimit:    gp.hopLimit - 1,
-			}
-			// Send ACK
-			fmt.Printf("SENDING ACK origin %v ID %v\n", tlc.Origin, tlc.ID)
-			gp.SendToNextHop(&GossipPacket{Ack: ack}, ack.Destination)
-
-			// Continue rumor mongering
-			except := map[string]struct{}{from.String(): struct{}{}}
-			gp.StartRumormongering(&GossipPacket{TLCMessage: tlc}, except, false, true) // Monger the tlcMessage
-		}
+		gp.HandleUnconfirmedTLC(from, tlc)
 	} else {
-		fmt.Printf("CONFIRMED GOSSIP origin %v ID %v file name %v Size %v metahash %v\n",
-			tlc.Origin, tlc.ID, tx.Name, tx.Size, utils.ToHex(tx.MetaFileHash))
-		isNew := gp.Rumors.AddTLCMessage(tlc)
-		go gp.SendStatusMessage(from)
+		gp.HandleConfirmedTLC(from, tlc)
+	}
+}
 
-		if isNew && gp.hw3ex3 { // Only for HW3EX3
-			round := gp.TLC.GetConfirmedMessageRound(tlc)
-			if round == myRound {
-				gp.TLC.AddConfirmed(tlc.ID, tlc.Origin)
-				gp.ShouldIncrementRound(tlc)
-			}
+func (gp *Gossiper) CheckBufferedTLC() {
+	validTLC := gp.TLC.GetValidTLC(gp.Rumors.CompareStatus)
+	for _, tlc := range validTLC {
+		if tlc.TLC.Confirmed == -1 {
+			gp.HandleUnconfirmedTLC(tlc.Origin, tlc.TLC)
+		} else {
+			gp.HandleConfirmedTLC(tlc.Origin, tlc.TLC)
 		}
 	}
 }
@@ -552,6 +582,11 @@ func (gp *Gossiper) ShouldIncrementRound(tlc *TLCMessage) {
 		currentRound, confirmedMessages := gp.TLC.IncrementMyRound(gp.Name)
 		toPrint := PrintTLCMessages(confirmedMessages)
 		fmt.Printf("ADVANCING TO round %v BASED ON CONFIRMED MESSAGES %v\n", currentRound, toPrint)
+		// Pop the last TX
+		if newTx, hasNew := gp.TLC.PopTx(); hasNew {
+			fmt.Println("POPPED")
+			go gp.SpreadTransaction(*newTx) //
+		}
 	}
 }
 
@@ -570,7 +605,7 @@ func (gp *Gossiper) HandleTLCAck(from *net.UDPAddr, ack *TLCAck) {
 			reBroadcast := gp.Rumors.CreateNewTLCMessage(gp.Name, int(ack.ID), *block, gp.hw3ex3)
 			gp.Rumors.AddTLCMessage(reBroadcast)
 
-			fmt.Printf("RE-BROADCAST %v WITNESSES %v\n", ack.ID, strings.Join(witnesses, ","))
+			fmt.Printf("RE-BROADCAST ID %v WITNESSES %v\n", ack.ID, strings.Join(witnesses, ","))
 			gp.StartRumormongering(&GossipPacket{TLCMessage: reBroadcast}, nil, false, true)
 
 			if gp.hw3ex3 {
@@ -680,7 +715,6 @@ func (gp *Gossiper) SendDataRequest(metaHash []byte, filename string, request *D
 		}
 	}
 }
-
 
 func (gp *Gossiper) MarshallPrivateMessages() []byte {
 	response := make(map[string][]string) // Prepare map for response

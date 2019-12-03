@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/ehoelzl/Peerster/utils"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +28,9 @@ type TLC struct {
 	acks              map[uint32]map[string]struct{} // Set of all peers who acknowledged TLCMessage with this ID
 	tickers           map[uint32]chan bool
 	peerTLC           map[string]*PeerTLC // Keeps state of the Current round for all nodes
-	confirmedMessages map[string]uint32   // Keeps state of all confirmed messages for this round
+	confirmedMessages map[uint32]map[string]uint32   // Keeps state of all confirmed messages for this round
+	bufferTx		  []*TxPublish
+	bufferTLC		  []*BufferedTLCMessage
 	sync.RWMutex
 }
 
@@ -43,7 +46,7 @@ func InitTLCStruct(numNodes uint64, name string) *TLC {
 		acks:              make(map[uint32]map[string]struct{}),
 		tickers:           make(map[uint32]chan bool),
 		peerTLC:           peerTLC,
-		confirmedMessages: make(map[string]uint32),
+		confirmedMessages: make(map[uint32]map[string]uint32), // round => peer => UID
 	}
 }
 
@@ -111,6 +114,51 @@ func (tlc *TLC) HasMajority(uid uint32) bool {
 
 /*============================================= EX 3 ==========================================================*/
 
+
+func (tlc *TLC) AddToTxBuffer(tx *TxPublish) {
+	tlc.Lock()
+	defer tlc.Unlock()
+	tlc.bufferTx = append(tlc.bufferTx, tx)
+}
+
+func (tlc *TLC) PopTx() (*TxPublish, bool) {
+	tlc.Lock()
+	defer tlc.Unlock()
+	if len(tlc.bufferTx) > 0 {
+		nextTx := tlc.bufferTx[0]
+		tlc.bufferTx[0] = nil
+		tlc.bufferTx = tlc.bufferTx[1:]
+		return nextTx, true
+	}
+	return nil, false
+}
+
+func (tlc *TLC) AddToTLCBuffer(from *net.UDPAddr, message *TLCMessage) {
+	tlc.Lock()
+	defer tlc.Unlock()
+	tlc.bufferTLC = append(tlc.bufferTLC, &BufferedTLCMessage{
+		TLC:    message,
+		Origin: from,
+	})
+}
+
+func (tlc *TLC) GetValidTLC(compFunc func(p *StatusPacket) (*GossipPacket, bool, bool)) []*BufferedTLCMessage{
+	tlc.Lock()
+	defer tlc.Unlock()
+	var validTLC []*BufferedTLCMessage
+	for _, m := range tlc.bufferTLC {
+		if _, _, notAccepted := compFunc(m.TLC.VectorClock); !notAccepted {
+			validTLC = append(validTLC, m)
+		}
+	}
+	for i,_ := range validTLC {
+		tlc.bufferTLC[i] = nil
+	}
+	tlc.bufferTLC = tlc.bufferTLC[len(validTLC):]
+
+	return validTLC
+}
+
 func (tlc *TLC) AddUnconfirmed(uid uint32, origin string) {
 	// Adds an unconfirmed message to the peer's round
 	tlc.Lock()
@@ -120,6 +168,7 @@ func (tlc *TLC) AddUnconfirmed(uid uint32, origin string) {
 	}
 	peer := tlc.peerTLC[origin]
 	if _, ok := peer.rounds[peer.currentRound]; !ok {
+		fmt.Printf("Added unconfirmed message %v form %v to round %v\n", uid, origin, peer.currentRound)
 		peer.rounds[peer.currentRound] = uid
 	}
 }
@@ -186,9 +235,21 @@ func (tlc *TLC) GetConfirmedMessageRound(message *TLCMessage) uint32 {
 func (tlc *TLC) AddConfirmed(uid uint32, origin string) {
 	tlc.Lock()
 	defer tlc.Unlock()
-	if _, ok := tlc.confirmedMessages[origin]; !ok {
-		tlc.confirmedMessages[origin] = uid
+	if _, ok := tlc.peerTLC[origin]; !ok {
+		tlc.peerTLC[origin] = initPeerTLC()
 	}
+	peer := tlc.peerTLC[origin]
+
+	if _, ok := tlc.confirmedMessages[peer.currentRound]; !ok {
+		tlc.confirmedMessages[peer.currentRound] = make(map[string]uint32)
+	}
+	currentRound := tlc.confirmedMessages[peer.currentRound]
+	if _, ok := currentRound[origin]; ok {
+		log.Printf("Already got confirmed message for %v for round %v\n", origin, peer.currentRound)
+		return
+	}
+	tlc.confirmedMessages[peer.currentRound][origin] = uid
+	fmt.Printf("Added confirmed message for %v ID %v at round %v\n", origin, uid, peer.currentRound)
 }
 
 func (tlc *TLC) HasUnconfirmed(origin string) bool {
@@ -213,18 +274,22 @@ func (tlc *TLC) IncrementMyRound(origin string) (uint32, []*TLCMessage) {
 	tlc.Lock()
 	defer tlc.Unlock()
 	var currRound uint32
+	var round uint32
 	var confirmedMessages []*TLCMessage
 	if peer, ok := tlc.peerTLC[origin]; ok {
+		round = peer.currentRound
 		peer.currentRound += 1
 		currRound = peer.currentRound
 	}
-	for origin, id := range tlc.confirmedMessages {
+	for origin, id := range tlc.confirmedMessages[round] {
 		confirmedMessages = append(confirmedMessages, &TLCMessage{
 			Origin: origin,
 			ID:     id,
 		})
 	}
-	tlc.confirmedMessages = make(map[string]uint32) // Re-initialize the round
+	if _, ok := tlc.confirmedMessages[currRound]; !ok {
+		tlc.confirmedMessages[currRound] = make(map[string]uint32) // Re-initialize the round
+	}
 	tlc.stopAllRunningTickers()                     // Stop waiting for all acks
 	tlc.acks = make(map[uint32]map[string]struct{}) // Reset the acks
 	return currRound, confirmedMessages
@@ -233,8 +298,8 @@ func (tlc *TLC) IncrementMyRound(origin string) (uint32, []*TLCMessage) {
 func (tlc *TLC) ShouldIncrementRound(origin string) bool {
 	tlc.RLock()
 	defer tlc.RUnlock()
-	hasMajority := uint64(len(tlc.confirmedMessages)) >= tlc.majority
 	peer := tlc.peerTLC[origin]
+	hasMajority := uint64(len(tlc.confirmedMessages[peer.currentRound])) >= tlc.majority
 	_, hasRoundMessage := peer.rounds[peer.currentRound]
 	return hasMajority && hasRoundMessage
 }

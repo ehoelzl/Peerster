@@ -100,6 +100,11 @@ type TLCMessage struct {
 	Fitness     float32
 }
 
+type BufferedTLCMessage struct {
+	TLC    *TLCMessage
+	Origin *net.UDPAddr
+}
+
 type TLCAck PrivateMessage
 
 type GossipPacket struct {
