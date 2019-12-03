@@ -35,9 +35,11 @@ type Gossiper struct {
 	hopLimit        uint32
 	hw3ex3          bool
 	ackAll          bool
+	hw3ex4          bool
+	QSC             *QSC
 }
 
-func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int, numNodes uint64, stubbornTimeout uint64, hw3ex2 bool, hopLimit uint32, hw3ex3 bool, ackAll bool) (*Gossiper, bool) {
+func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int, numNodes uint64, stubbornTimeout uint64, hw3ex2 bool, hopLimit uint32, hw3ex3 bool, ackAll bool, hw3ex4 bool) (*Gossiper, bool) {
 	// Creates new gossiper with the given parameters
 	clientAddr, err := net.ResolveUDPAddr("udp4", uiAddress)
 	utils.CheckFatalError(err, fmt.Sprintf("Could not resolve UI Address %v\n", uiAddress))
@@ -72,6 +74,8 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		hopLimit:        hopLimit,
 		hw3ex3:          hw3ex3,
 		ackAll:          ackAll,
+		hw3ex4:          hw3ex4,
+		QSC:             InitQSCStruct(),
 	}
 
 	// AntiEntropy timer
@@ -165,7 +169,7 @@ func (gp *Gossiper) HandleFileIndexing(message *Message) {
 	if !indexed {
 		return
 	}
-	if !(gp.hw3ex2 || gp.hw3ex3) { // In the case of other exs, do not send TLC
+	if !(gp.hw3ex2 || gp.hw3ex3 || gp.hw3ex4) { // In the case of other exs, do not send TLC
 		return
 	}
 	// Create function that does the TLCMessage (unconfirmed, and start timer that stops when
@@ -176,16 +180,30 @@ func (gp *Gossiper) HandleFileIndexing(message *Message) {
 	}
 	hasUnconfirmed := gp.TLC.HasUnconfirmed(gp.Name) // Check if we already have an unconfirmed message for the round
 
-	if hasUnconfirmed && gp.hw3ex3 { // Buffer it for next round
+	if hasUnconfirmed && (gp.hw3ex3 || gp.hw3ex4) { // Buffer it for next round
 		gp.TLC.AddToTxBuffer(&tx)
 		return
 	}
-	gp.SpreadTransaction(tx)
+
+	gp.SpreadNewBlock(tx)
 }
 
-func (gp *Gossiper) SpreadTransaction(tx TxPublish) {
-	tlc := gp.Rumors.CreateNewTLCMessage(gp.Name, -1, BlockPublish{Transaction: tx}, gp.hw3ex3)
+func (gp *Gossiper) SpreadNewBlock(tx TxPublish) {
+	var block BlockPublish
+	if gp.hw3ex4 {
+		block = gp.QSC.GenerateBlock(tx)
+	} else {
+		block = BlockPublish{Transaction:tx}
+	}
+	gp.SpreadBlock(block, gp.hw3ex4, 0)
+
+}
+
+func (gp *Gossiper) SpreadBlock(block BlockPublish, randomFitness bool, fitness float32) {
+	tlc := gp.Rumors.CreateNewTLCMessage(gp.Name, -1, block, gp.hw3ex3 || gp.hw3ex4, randomFitness, fitness)
 	added := gp.Rumors.AddTLCMessage(tlc)
+	tx := block.Transaction
+
 	if added {
 		gp.TLC.WaitForAcks(tlc.ID) // Add to accumulate ACKS
 		packet := &GossipPacket{TLCMessage: tlc}
@@ -199,7 +217,7 @@ func (gp *Gossiper) SpreadTransaction(tx TxPublish) {
 
 		// Start RumorMongering
 		callback()
-		if gp.hw3ex3 {
+		if gp.hw3ex3 || gp.hw3ex4 {
 			gp.TLC.AddUnconfirmed(tlc.ID, gp.Name) // Record that we have a message for this round
 			gp.ShouldIncrementRound(tlc)           // Check if we can increment to next round
 		}
@@ -331,7 +349,7 @@ func (gp *Gossiper) HandleRumorMessage(from *net.UDPAddr, rumor *RumorMessage) {
 
 		except := map[string]struct{}{from.String(): struct{}{}}                 // Monger with other nodes except this one
 		gp.StartRumormongering(&GossipPacket{Rumor: rumor}, except, false, true) // Start RumorMongering
-		if gp.hw3ex3 {
+		if gp.hw3ex3 || gp.hw3ex4 {
 			gp.CheckBufferedTLC() // Check any buffered tlc messages
 		}
 	}
@@ -487,15 +505,19 @@ func (gp *Gossiper) HandleSearchReply(from *net.UDPAddr, sr *SearchReply) {
 func (gp *Gossiper) HandleUnconfirmedTLC(from *net.UDPAddr, tlc *TLCMessage) {
 	myRound := gp.TLC.GetMyRound(gp.Name)
 	shouldAck := true
+	isValid := true // for now
+
 	tx := tlc.TxBlock.Transaction
-	if gp.hw3ex3 {
+	if gp.hw3ex3 || gp.hw3ex4 {
 		round, shouldIncrement := gp.TLC.GetUnconfirmedMessageRound(tlc)
-		fmt.Printf("Got unconfirmed message from %v at round %v, shouldIncrement=%v, myround=%v\n", tlc.Origin, round, shouldIncrement, myRound)
 		if shouldIncrement {
 			gp.TLC.IncrementRound(tlc.Origin) // Increment the peer's round
 		}
 		gp.TLC.AddUnconfirmed(tlc.ID, tlc.Origin) // Record the unconfirmed message
 		shouldAck = round >= myRound || gp.ackAll
+		if gp.hw3ex4 {
+			isValid = gp.QSC.IsValidBlock(tlc.TxBlock) // Check if the Block is confirmed
+		}
 	}
 
 	fmt.Printf("UNCONFIRMED GOSSIP origin %v ID %v file name %v Size %v metahash %v\n",
@@ -504,7 +526,6 @@ func (gp *Gossiper) HandleUnconfirmedTLC(from *net.UDPAddr, tlc *TLCMessage) {
 	isNew := gp.Rumors.AddTLCMessage(tlc) // Add message to list
 	go gp.SendStatusMessage(from)         // Send back status
 
-	isValid := true // for now
 	if isValid && shouldAck {
 		ack := &TLCAck{
 			Origin:      gp.Name,
@@ -519,7 +540,7 @@ func (gp *Gossiper) HandleUnconfirmedTLC(from *net.UDPAddr, tlc *TLCMessage) {
 	// Continue rumor mongering
 	except := map[string]struct{}{from.String(): struct{}{}}
 	gp.StartRumormongering(&GossipPacket{TLCMessage: tlc}, except, false, true) // Monger the tlcMessage
-	if isNew && gp.hw3ex3 {
+	if isNew && (gp.hw3ex3 || gp.hw3ex4) {
 		gp.CheckBufferedTLC() // Check any buffered tlc messages
 	}
 }
@@ -535,8 +556,8 @@ func (gp *Gossiper) HandleConfirmedTLC(from *net.UDPAddr, tlc *TLCMessage) {
 	except := map[string]struct{}{from.String(): struct{}{}}
 	gp.StartRumormongering(&GossipPacket{TLCMessage: tlc}, except, false, true) // Monger the tlcMessage
 
-	if isNew && gp.hw3ex3 { // Only for HW3EX3
-		gp.TLC.AddConfirmed(tlc.ID, tlc.Origin)
+	if isNew && (gp.hw3ex3 || gp.hw3ex4) { // Only for HW3EX3
+		gp.TLC.AddConfirmed(tlc) // Add the Confirmed message to the round it belongs to (depending on the peer)
 		gp.ShouldIncrementRound(tlc)
 		gp.CheckBufferedTLC() // Check any buffered tlc messages
 	}
@@ -548,7 +569,7 @@ func (gp *Gossiper) HandleTLCMessage(from *net.UDPAddr, tlc *TLCMessage) {
 	}
 	gp.Routing.UpdateRoute(tlc.Origin, from, true) // Never print DSDV
 
-	if gp.hw3ex3 { // In ex3, check that vector clock is satisfied
+	if gp.hw3ex3 || gp.hw3ex4 { // In ex3, check that vector clock is satisfied
 		_, _, notAccepted := gp.Rumors.CompareStatus(tlc.VectorClock) // Accepted if I have seen all messages before it
 		if notAccepted {
 			gp.SendStatusMessage(from)
@@ -583,10 +604,35 @@ func (gp *Gossiper) ShouldIncrementRound(tlc *TLCMessage) {
 		toPrint := PrintTLCMessages(confirmedMessages)
 		fmt.Printf("ADVANCING TO round %v BASED ON CONFIRMED MESSAGES %v\n", currentRound, toPrint)
 		// Pop the last TX
-		if newTx, hasNew := gp.TLC.PopTx(); hasNew {
-			fmt.Println("POPPED")
-			go gp.SpreadTransaction(*newTx) //
+		if gp.hw3ex3{
+			if newTx, hasNew := gp.TLC.PopTx(); hasNew {
+				go gp.SpreadNewBlock(*newTx) //
+			}
+		} else if gp.hw3ex4 {
+			switch currentRound % 3 {
+			case 1: // Round s+1
+				// select confirmed with highest fitness from previous round
+				// Set as firstContestant + broadcast
+				contestant := GetHighestFitness(confirmedMessages)
+				gp.QSC.SetContestant(contestant)
+				gp.SpreadBlock(contestant.TxBlock,false, contestant.Fitness) // Spread the block with highest fitness
+			case 2: // Round s+2
+				// Select confirmed with highest fitness from previous round
+				// Select as secondContestant + broadcast
+				contestant := GetHighestFitness(confirmedMessages)
+				gp.SpreadBlock(contestant.TxBlock,false, contestant.Fitness) // Spread the block with highest fitness
+				gp.QSC.AddSecondConfirmations(confirmedMessages)
+			case 0:// Round s+3
+				/*1. Check that m originates from round s, and threshold witnessed by s+1 (i.e. in confirmedMessages1)
+				  2. Check that m was also threshold witnessed by s+2 (i.e. also in confirmedMessages2)
+				  3. Does not observe a "more fit" message m' from round s
+				*/
+				initialMessages := gp.TLC.GetAllConfirmedMessagesFromRound(currentRound - 3)
+				gp.QSC.CheckConsensus(initialMessages, gp.TLC.majority)
+			}
+
 		}
+
 	}
 }
 
@@ -601,15 +647,16 @@ func (gp *Gossiper) HandleTLCAck(from *net.UDPAddr, ack *TLCAck) {
 			gp.TLC.StopTicker(ack.ID)             // Stop the running ticker
 			witnesses := gp.TLC.ClearAcks(ack.ID) // Clear acks
 
-			block, _ := gp.Rumors.GetTLCMessageBlock(gp.Name, ack.ID) // get the blockPublish corresponding
-			reBroadcast := gp.Rumors.CreateNewTLCMessage(gp.Name, int(ack.ID), *block, gp.hw3ex3)
+			tlcMessage, _ := gp.Rumors.GetTLCMessage(gp.Name, ack.ID) // get the blockPublish corresponding
+
+			reBroadcast := gp.Rumors.CreateNewTLCMessage(gp.Name, int(ack.ID), tlcMessage.TxBlock, gp.hw3ex3 || gp.hw3ex4, false, tlcMessage.Fitness)
 			gp.Rumors.AddTLCMessage(reBroadcast)
 
 			fmt.Printf("RE-BROADCAST ID %v WITNESSES %v\n", ack.ID, strings.Join(witnesses, ","))
 			gp.StartRumormongering(&GossipPacket{TLCMessage: reBroadcast}, nil, false, true)
 
-			if gp.hw3ex3 {
-				gp.TLC.AddConfirmed(reBroadcast.ID, reBroadcast.Origin) // Add message as confirmed
+			if gp.hw3ex3 || gp.hw3ex4 {
+				gp.TLC.AddConfirmed(reBroadcast) // Add message as confirmed
 				gp.ShouldIncrementRound(reBroadcast)                    // Check if we need to increment to next round
 			}
 		}

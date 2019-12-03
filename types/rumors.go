@@ -2,7 +2,9 @@ package types
 
 import (
 	"encoding/json"
+	"math/rand"
 	"sync"
+	"time"
 )
 
 /*PeerRumors is an encapsulation of all the messages with one origin (the peer)*/
@@ -97,12 +99,17 @@ func (r *Rumors) CreateNewRumor(origin string, message string) *RumorMessage {
 	return rumor
 }
 
-func (r *Rumors) CreateNewTLCMessage(origin string, confirmed int, txBlock BlockPublish, withStatus bool) *TLCMessage {
+func (r *Rumors) CreateNewTLCMessage(origin string, confirmed int, txBlock BlockPublish, withStatus bool, randomFitness bool, fitness float32) *TLCMessage {
 	r.RLock()
 	defer r.RUnlock()
 	var vectorClock *StatusPacket
-	if withStatus {
+	if withStatus{
 		vectorClock = r.getStatusPacket()
+	}
+
+	if randomFitness {
+		rand.Seed(time.Now().UnixNano())
+		fitness = rand.Float32()
 	}
 	tlc := &TLCMessage{
 		Origin:      origin,
@@ -110,6 +117,7 @@ func (r *Rumors) CreateNewTLCMessage(origin string, confirmed int, txBlock Block
 		Confirmed:   confirmed,
 		TxBlock:     txBlock,
 		VectorClock: vectorClock,
+		Fitness:     fitness,
 	}
 	return tlc
 }
@@ -159,12 +167,12 @@ func (r *Rumors) GetStatusPacket() *StatusPacket {
 	return statusPacket
 }
 
-func (r *Rumors) GetTLCMessageBlock(name string, uid uint32) (*BlockPublish, bool) {
+func (r *Rumors) GetTLCMessage(name string, uid uint32) (*TLCMessage, bool) {
 	r.RLock()
 	defer r.RUnlock()
 	if peer, ok := r.rumors[name]; ok {
 		if tlc, ok := peer.TLCMessages[uid]; ok {
-			return &tlc.TxBlock, true
+			return tlc, true
 		}
 	}
 	return nil, false
@@ -214,7 +222,7 @@ func (r *Rumors) GetRumorsJsonString() []byte {
 	for identifier, p := range r.rumors {
 		messages := make(map[uint32]string)
 		for _, m := range p.Rumors {
-			if len(m.Text) > 0 {  // Only get non-route rumors
+			if len(m.Text) > 0 { // Only get non-route rumors
 				messages[m.ID] = m.Text
 			}
 		}
