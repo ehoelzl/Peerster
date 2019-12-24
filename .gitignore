@@ -5,6 +5,8 @@
 *.dll
 *.so
 *.dylib
+Peerster
+client/client
 
 # Test binary, built with `go test -c`
 *.test
@@ -15,3 +17,7 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 .idea/
+
+# Output text files
+*.txt
+

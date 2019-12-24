@@ -1,11 +1,13 @@
 body {
-  margin: 50px;
-  padding-left: 100px;
-  padding-right: 100px;
+  padding: 0px 100px;
   font: 20px arial, sans-serif;
 }
 .is-special {
   color: royalblue;
+}
+
+header {
+  text-align: center;
 }
 
 .wrapper {
@@ -15,13 +17,10 @@ body {
   grid-template-rows: 75px auto auto auto;
   background-color: #ffffff;
   color: #444;
-  margin-right: -300px;
-  margin-left: 100px;
 }
 
 .box {
-  background-color: #DCDCDC;
-  color: #000000;
+  border: 1px solid black;
   border-radius: 5px;
   padding: 20px;
   font-size: 100%;
@@ -34,7 +33,6 @@ body {
 .b {
   grid-column: 3 / span 2;
   grid-row: 1 / span 2;
-  width: 500px;
 }
 .c {
   grid-column: 1 ;
@@ -56,12 +54,11 @@ body {
 .g {
   grid-column: 3;
   grid-row: 3;
-  width: 500px;
 }
 
 .h {
-  grid-column: 1;
-  grid-row: 4;
+  grid-column: 4;
+  grid-row: 3;
 }
 
 .peers{
