@@ -162,9 +162,9 @@ func (s *Server) PostNodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func NewServer(addr string, gossiper *Gossiper) {
+func NewServer(port string, gossiper *Gossiper) {
 	server := &Server{
-		Address:  addr,
+		Address:  ":" + port,
 		Gossiper: gossiper,
 	}
 
@@ -179,17 +179,18 @@ func NewServer(addr string, gossiper *Gossiper) {
 	r.HandleFunc("/private", server.GetPrivateMessageHandler).Methods("GET")
 	r.HandleFunc("/files", server.GetFilesHandler).Methods("GET")
 	r.HandleFunc("/search", server.GetFullMatches).Methods("GET")
+	r.Handle("/", http.FileServer(http.Dir("./frontend")))
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./frontend/")))
 	handler := cors.Default().Handler(r)
 	srv := &http.Server{
 		Handler: handler,
-		Addr:    addr,
+		Addr:    ":" + port,
 		// Good practice: enforce timeouts for servers you create!
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}
-	log.Printf("Starting server at %v\n", addr)
-	log.Printf("WebClient available at http://%v/\n", addr)
+	log.Printf("Starting server at localhost:%v\n", port)
+	log.Printf("WebClient available at http://localhost:%v/\n", port)
 	err := srv.ListenAndServe()
 	if err != nil {
 		log.Println("Error starting server")

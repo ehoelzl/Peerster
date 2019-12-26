@@ -50,11 +50,10 @@ func main() {
 	ackAll := flag.Bool("ackAll", false, "ack all incoming unconfirmed TLCMessage")
 	hw3ex4 := flag.Bool("hw3ex4", false, "Use blockchain")
 	flag.Parse()
-	CLIAddress := "127.0.0.1:" + *uiPort
-	//GUIListen := "127.0.0.1:8080"
+	CLIAddress := "0.0.0.0:" + *uiPort
 	gp, created := NewGossiper(CLIAddress, *gossipAddr, *name, *peers, *simple, *antiEntropy, *rtimer, *numNodes, *stubbornTimeout, *hw3ex2, uint32(*hopLimit), *hw3ex3, *ackAll, *hw3ex4)
 	if created {
-		go NewServer(CLIAddress, gp)
+		go NewServer(*uiPort, gp)
 		go StartGossipListener(gp)
 		StartClientListener(gp)
 	}

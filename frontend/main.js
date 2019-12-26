@@ -681,8 +681,8 @@ class FileSearch extends Component {
 class App extends Component {
     render() {
         return html`
-      <header class="container">
-        <h1 style="padding-left: 50px">Peerster Application</h1>
+      <header>
+        <h1>Jamster</h1>
       </header>
       
       <section>
