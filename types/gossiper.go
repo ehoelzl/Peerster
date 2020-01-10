@@ -37,6 +37,7 @@ type Gossiper struct {
 	ackAll          bool
 	hw3ex4          bool
 	QSC             *QSC
+	Randomness      *Randomness
 }
 
 func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, simple bool, antiEntropy uint, rtimer int, numNodes uint64, stubbornTimeout uint64, hw3ex2 bool, hopLimit uint32, hw3ex3 bool, ackAll bool, hw3ex4 bool) (*Gossiper, bool) {
@@ -53,7 +54,11 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 	gossipConn, err := net.ListenUDP("udp4", gossipAddr)
 	utils.CheckFatalError(err, fmt.Sprintf("Error when opening gossip UDP channel for %v\n", name))
 
+	randomness, err := getRandomness()
+	utils.CheckFatalError(err, fmt.Sprintf("Error getting randomness"))
+
 	log.Printf("Starting gossiper %v\n UIAddress: %v\n GossipAddress %v\n Peers %v\n\n", name, clientAddr, gossipAddr, initialPeers)
+	log.Printf("Randomness is %v", randomness.Point)
 
 	gossiper := &Gossiper{
 		ClientAddress:   clientAddr,
@@ -76,6 +81,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		ackAll:          ackAll,
 		hw3ex4:          hw3ex4,
 		QSC:             InitQSCStruct(),
+		Randomness:      randomness,
 	}
 
 	// AntiEntropy timer

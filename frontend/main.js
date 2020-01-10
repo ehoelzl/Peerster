@@ -24,7 +24,7 @@ class Node extends Component {
             this.setState(({gossipAddress, name}) => (data))
             this.setState(({disconnected}) => ({disconnected: false}))
         }.bind(this)).fail(function () {
-            this.setState({disconnected: true, name: "", gossipAddress: ""})
+            this.setState({disconnected: true, name: "", gossipAddress: "", randomnessRound: ""})
         }.bind(this))
     }
 
@@ -33,25 +33,15 @@ class Node extends Component {
         setInterval(() => this.refreshNode(), 15 * 1000)
     }
 
-    NodeString(props) {
-        if (this.state.disconnected) {
-            return html`<div>Node disconnected</div>`
-        } else {
-            return html`
-              <div style="float: left; margin-right: 10px">Node</div>
-              <div style="font-weight: bold" >${this.state.name}</div>
-              <div style="float: left; margin-right: 10px">Gossip Address</div>
-              <div class="peers" >${this.state.gossipAddress} </div>
-      `
-        }
-    }
-
-
     render() {
         return html`
         <section>
-            <div style="overflow: hidden">
-              ${this.NodeString()}
+            <div>
+              ${this.state.disconnected ?
+                html`<div>Node disconnected</div>` :
+                html`
+                  Node <strong>${this.state.name}</strong> | Gossip Address ${this.state.gossipAddress} | Randomness Round ${this.state.randomnessRound}
+              `}
             </div>
         </section>
     `

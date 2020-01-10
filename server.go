@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"time"
+	"strconv"
 )
 
 type Server struct {
@@ -81,6 +82,7 @@ func (s *Server) GetIdHandler(w http.ResponseWriter, r *http.Request) {
 	response := make(map[string]string)
 	response["gossipAddress"] = s.Gossiper.GossipAddress.String()
 	response["name"] = s.Gossiper.Name
+	response["randomnessRound"] = strconv.FormatFloat(s.Gossiper.Randomness.Round, 'f', -1, 64)
 	jsonString, _ := json.Marshal(response)
 
 	_, err := io.WriteString(w, string(jsonString))
