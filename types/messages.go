@@ -108,6 +108,7 @@ type BufferedTLCMessage struct {
 	Origin *net.UDPAddr
 }
 
+
 type TLCAck PrivateMessage
 
 type GossipPacket struct {
@@ -121,6 +122,7 @@ type GossipPacket struct {
 	SearchReply   *SearchReply
 	TLCMessage    *TLCMessage
 	Ack           *TLCAck
+	PTPMessage	  *PTPMessage
 }
 
 func (sp *StatusPacket) PrintStatusMessage(sender *net.UDPAddr) {
