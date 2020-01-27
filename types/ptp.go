@@ -11,13 +11,15 @@ import (
 )
 
 
-const Ticker_PTP  = 7
+const Ticker_PTP  = 14
 
 type PTP struct {
 	Peers         map[string]string
 	NumberOfNodes uint64
 	Lock          sync.RWMutex
 	MASTER        string
+	SECOND		  string
+	Randomness	  uint32
 	T1            time.Time
 	T2            time.Time
 	T3 			  time.Time
@@ -92,9 +94,9 @@ func InitPTP(g *Gossiper){
 
 	//TODO : be sure that we have uniform consensus on the leader
 	//We have two ways to implement the rounds :  either round by round, process1,2,3,1,2,3 etc.. or use the randomness from the league of entropy to decide the leader at each round
-	var max uint32
+	var max uint32 = 0
 	var MASTER string
-	max = 0
+	g.PTP.Randomness = HashToNumber(r.Point)
 	log.Println("RANDOMNESS", HashToNumber(r.Point))
 	for k, v := range g.PTP.Peers {
 		mod := HashToNumber(v)%HashToNumber(r.Point)
@@ -104,6 +106,15 @@ func InitPTP(g *Gossiper){
 		}
 	}
 
+	for k, v := range g.PTP.Peers {
+		mod := HashToNumber(v)%HashToNumber(r.Point)
+		if k != MASTER && g.Name != k {
+			if mod < HashToNumber(g.PTP.Peers[g.Name]) % HashToNumber(r.Point) {
+				g.PTP.SECOND = g.Name
+			}
+		}
+	}
+	
 	//The master is saved, and starts the sync process
 	g.PTP.MASTER = MASTER
 	if MASTER == g.Name {
@@ -157,6 +168,14 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 		now := time.Now()
 		t4Packet := PTPMessage{T4: &now}
 		go g.SendPacket(&GossipPacket{PTPMessage: &t4Packet}, from)
+
+		time.Sleep(1*time.Second)
+
+		log.Println(g.Name, "STARTED PLAYING DRUMS")
+
+		// THIS IS RUN TWICE, ONCE FOR EACH SLAVE
+		// TODO FIX THIS
+		PlayDrums()
 	} else if
 	//AT SLAVE sync is complete, we can compute the offset
 	ptp.T4 != nil {
@@ -174,6 +193,16 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 			g.PTP.Lock.Unlock()
 		} else {
 			log.Println("CLOCK DELAY at", g.Name, offset)
+		}
+
+		time.Sleep(1*time.Second - offset)
+
+		if g.PTP.SECOND == g.Name {
+			log.Println(g.Name, "STARTED PLAYING BASS")
+			PlayBass()
+		} else {
+			log.Println(g.Name, "STARTED PLAYING SYNTH")
+			PlaySynth()
 		}
 
 		//We reset the values for the next round
