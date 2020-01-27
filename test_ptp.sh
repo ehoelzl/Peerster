@@ -14,6 +14,6 @@ sleep 1
 
 
 
-sleep 15
+sleep 120
 
 pkill -f Peerster

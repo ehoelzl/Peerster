@@ -1,7 +1,6 @@
 package types
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"github.com/dedis/protobuf"
@@ -677,64 +676,6 @@ func (gp *Gossiper) HandleTLCAck(from *net.UDPAddr, ack *TLCAck) {
 		gp.SendToNextHop(&GossipPacket{Ack: ack}, ack.Destination)
 	}
 }
-
-
-
-//There will be multiple PTP events let's check for each one
-func (gp *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
-	//Initiating the protocol
-	if ptp.Name != nil && ptp.T1 == nil {
-		//Check if we haven't recorded this peer already
-		if gp.PTP.Peers[*ptp.Name] != "" {return}
-		//Lazy Broadcast
-		gp.Broadcast(&GossipPacket{PTPMessage:ptp}, nil)
-		//Else we register a new ptp peer
-		hash := sha256.Sum256([]byte(*ptp.Name))
-		uid := utils.ToHex(hash[:])
-		gp.PTP.Lock.Lock()
-		gp.PTP.Peers[*ptp.Name] = uid
-		gp.PTP.Lock.Unlock()
-
-	} else
-	//AT SLAVE : Record time at which we received the message from the master
-	if ptp.T1 != nil && ptp.Name != nil {
-		//TODO: check that this is indeed the master!
-		gp.PTP.T1 = *ptp.T1
-		T2 := time.Now()
-		gp.PTP.T2 = T2
-
-		nilP := PTPMessage{
-			Name: nil,
-			T1:   nil,
-		}
-		gp.SendPacket(&GossipPacket{PTPMessage:&nilP}, from)
-		gp.PTP.T3 = time.Now()
-	} else
-	//AT MASTER : we received an empty ptp message from a slave. He is simply asking us when we received this message
-	if ptp.T1 == nil && ptp.Name == nil && ptp.T4 == nil {
-
-		//this message should only received by the master!
-		if gp.Name != gp.PTP.MASTER {
-			return
-		}
-
-		//
-		now := time.Now()
-		t4Packet := PTPMessage{T4: &now}
-		go gp.SendPacket(&GossipPacket{PTPMessage:&t4Packet}, from)
-	} else if
-	//AT SLAVE sync is complete, we can compute the offset
-	ptp.T4 != nil {
-		//offset = (T2 - T1 - T4 + T3) ÷ 2
-		gp.PTP.T4 = *ptp.T4
-		t2mt1 := gp.PTP.T2.Sub(gp.PTP.T1)
-		opt3 := gp.PTP.T3.Add(t2mt1)
-		offset := opt3.Sub(gp.PTP.T4)/2
-		log.Println("YOUR CLOCK IS DELAYED by : ", offset)
-	}
-}
-
-
 
 /*-------------------- Methods used for transferring messages and broadcasting ------------------------------*/
 
