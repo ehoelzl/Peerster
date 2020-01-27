@@ -30,6 +30,7 @@ type Gossiper struct {
 	SearchRequests  *SearchRequests
 	FullMatches     *FullMatches
 	TLC             *TLC
+	PTP 			*PTP
 	stubbornTimeout uint64
 	hw3ex2          bool
 	hopLimit        uint32
@@ -58,7 +59,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 	utils.CheckFatalError(err, fmt.Sprintf("Error getting randomness"))
 
 	log.Printf("Starting gossiper %v\n UIAddress: %v\n GossipAddress %v\n Peers %v\n\n", name, clientAddr, gossipAddr, initialPeers)
-	log.Printf("Randomness is %v", randomness.Point)
+	//log.Printf("Randomness is %v", randomness.Point)
 
 	gossiper := &Gossiper{
 		ClientAddress:   clientAddr,
@@ -74,6 +75,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		SearchRequests:  InitSearchRequests(),
 		FullMatches:     InitFullMatches(),
 		TLC:             InitTLCStruct(numNodes, name),
+		PTP: 			 InitPTPStruct(numNodes),
 		stubbornTimeout: stubbornTimeout,
 		hw3ex2:          hw3ex2,
 		hopLimit:        hopLimit,
@@ -333,6 +335,8 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 			gp.HandleTLCMessage(from, tlc)
 		} else if ack := packet.Ack; ack != nil {
 			gp.HandleTLCAck(from, ack)
+		} else if ptp := packet.PTPMessage; ptp != nil {
+			gp.HandlePTP(from, ptp)
 		} else {
 			log.Printf("Empty packet from %v\n", from.String())
 			return

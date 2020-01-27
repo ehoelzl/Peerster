@@ -55,6 +55,10 @@ func main() {
 	if created {
 		go NewServer(*uiPort, gp)
 		go StartGossipListener(gp)
+		go PlayPTP(gp)
 		StartClientListener(gp)
 	}
 }
+
+
+
