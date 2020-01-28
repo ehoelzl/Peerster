@@ -119,6 +119,7 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 			log.Println("CLOCK DELAY at", g.Name, offset)
 			g.PTP.Lock()
 			g.PTP.CurrentDelta = offset
+			g.PTP.Unlock()
 		}
 
 		time.Sleep(g.sleepDuration())
