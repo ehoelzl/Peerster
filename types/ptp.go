@@ -143,7 +143,9 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 func (g *Gossiper) sleepDuration() time.Duration {
 	playTime := g.MasterTime().Truncate(5 * time.Second).Add(5 * time.Second)
 	log.Println(playTime)
-	return g.MasterTime().Sub(playTime)
+	duration := g.MasterTime().Sub(playTime)
+	log.Printf("Waiting for %v \n", duration)
+	return duration
 }
 
 func HashToNumber(s string) uint32 {
