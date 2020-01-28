@@ -341,7 +341,7 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 			gp.HandlePTP(from, ptp)
 		} else if disc := packet.DiscussionMessage; disc != nil {
 			//log.Println("NEW DISCUSSION MESSAGE AT", gp.Name)
-			gp.HandleDiscussion(from, disc)
+			gp.HandleDiscussionMessage(from, disc)
 		} else {
 			log.Printf("Empty packet from %v\n", from.String())
 			return
