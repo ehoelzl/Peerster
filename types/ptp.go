@@ -9,13 +9,15 @@ import (
 )
 
 
-const Ticker_PTP  = 7
+const Ticker_PTP  = 14
 
 type PTP struct {
 	Peers         map[string]string
 	NumberOfNodes uint64
 	Lock          sync.RWMutex
 	MASTER        string
+	SECOND		  string
+	Randomness	  uint32
 	T1            time.Time
 	T2            time.Time
 	T3 			  time.Time
@@ -92,9 +94,13 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 		if g.Name != g.PTP.MASTER {return}
 		now := time.Now()
 		t4Packet := PTPMessage{T4: &now}
-		g.SendPacket(&GossipPacket{PTPMessage: &t4Packet}, from)
-		//TODO @Louis : Play music here
 
+		g.SendPacket(&GossipPacket{PTPMessage: &t4Packet}, from)
+
+		time.Sleep(g.sleepDuration())
+
+		log.Println(g.Name, "STARTED PLAYING DRUMS")
+		PlayDrums()
 	} else if
 	//AT SLAVE sync is complete, we can compute the offset
 	ptp.T4 != nil {
@@ -114,7 +120,15 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 			log.Println("CLOCK DELAY at", g.Name, offset)
 		}
 
-		//TODO @Louis : Play music here
+		time.Sleep(g.sleepDuration() - offset)
+
+		if g.GetMyOrder() == 1 {
+			log.Println(g.Name, "STARTED PLAYING BASS")
+			PlayBass()
+		} else {
+			log.Println(g.Name, "STARTED PLAYING SYNTH")
+			PlaySynth()
+		}
 
 		//We reset the values for the next round
 		g.PTP.T1 = time.Time{}
@@ -122,6 +136,11 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 		g.PTP.T3 = time.Time{}
 		g.PTP.T4 = time.Time{}
 	}
+}
+
+func (g *Gossiper) sleepDuration() time.Duration {
+	playTime := g.MasterTime().Truncate(5 * time.Second).Add(5 * time.Second)
+	return g.MasterTime().Sub(playTime)
 }
 
 func HashToNumber(s string) uint32 {
