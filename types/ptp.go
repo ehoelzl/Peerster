@@ -120,7 +120,7 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 			log.Println("CLOCK DELAY at", g.Name, offset)
 		}
 
-		time.Sleep(g.sleepDuration() - offset)
+		time.Sleep(g.sleepDuration())
 
 		if g.GetMyOrder() == 1 {
 			log.Println(g.Name, "STARTED PLAYING BASS")
