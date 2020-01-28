@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-const amplitude float64 = 0.05
+const amplitude float64 = 0.1
 const kickFreq float64 = 22
 const hiHatFreq float64 = 1174.66
 const bassAmplitude float64 = 0.6
@@ -19,6 +19,7 @@ const sampleRate float64 = 44100
 var drumPlaying = false
 var drumLock = &sync.Mutex{}
 
+var sr = InitSpeaker(sampleRate)
 
 func Bass(freq float64) beep.Streamer {
 	var inc float64 = 0
@@ -52,9 +53,10 @@ func Kick() beep.Streamer {
 	var inc float64 = 1
 	return beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
 		for i := range samples {
-			// value := rand.Float64()
+			amplitude := 0.4
 			value := math.Abs(math.Sin((2 * math.Pi * inc * kickFreq) / sampleRate))
-			shape := math.Sqrt(0.1 / math.Pow((inc / sampleRate), 2))
+			// shape := math.Sqrt(0.1 / math.Pow((inc / sampleRate), 2))
+			shape := 1 - (4 * inc / sampleRate)
 			samples[i][0] = (value * 2 - 1) * shape * amplitude
 			samples[i][1] = (value * 2 - 1) * shape * amplitude
 			inc++
@@ -68,7 +70,8 @@ func Snare() beep.Streamer {
 	return beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
 		for i := range samples {
 			value := rand.Float64()
-			shape := math.Sqrt(0.1 / math.Pow((inc / sampleRate), 2))
+			shape := 1.0 // math.Sqrt(1 / math.Pow((inc / sampleRate), 2))
+			shape = 1 - (2 * inc / sampleRate)
 			samples[i][0] = (value * 2 - 1) * shape * amplitude
 			samples[i][1] = (value * 2 - 1) * shape * amplitude
 			inc++
@@ -81,9 +84,10 @@ func HiHat() beep.Streamer {
 	var inc float64 = 1
 	return beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
 		for i := range samples {
-			shape := math.Sqrt(0.1 / math.Pow((inc / sampleRate), 2))
-			samples[i][0] = amplitude * shape * rand.Float64()
-			samples[i][1] = amplitude * shape * rand.Float64()
+			shape := 1.0 // math.Sqrt(1 / math.Pow((inc / sampleRate), 2))
+			shape = 1 - (20 * inc / sampleRate)
+			samples[i][0] = amplitude * shape * (rand.Float64() * 2 - 1)
+			samples[i][1] = amplitude * shape * (rand.Float64() * 2 - 1)
 			inc++
 		}
 		return len(samples), true
@@ -100,6 +104,16 @@ func DrumLoop(sr beep.SampleRate) beep.Streamer {
 	return beep.Seq(
 		beep.Take(sr.N(250*time.Millisecond), Kick()),
 		beep.Take(sr.N(100*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(50*time.Millisecond), HiHat()),
+		beep.Take(sr.N(300*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(250*time.Millisecond), Snare()),
+		beep.Take(sr.N(100*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(50*time.Millisecond), HiHat()),
+		beep.Take(sr.N(125*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(175*time.Millisecond), Kick()),
+		beep.Take(sr.N(50*time.Millisecond), HiHat()),
+		beep.Take(sr.N(125*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(175*time.Millisecond), Kick()),
 		beep.Take(sr.N(50*time.Millisecond), HiHat()),
 		beep.Take(sr.N(300*time.Millisecond), beep.Silence(-1)),
 		beep.Take(sr.N(250*time.Millisecond), Snare()),
@@ -125,7 +139,22 @@ func BassLoop(sr beep.SampleRate) beep.Streamer {
 		beep.Take(sr.N(300*time.Millisecond), Bass(87.31)),
 		beep.Take(sr.N(50*time.Millisecond), beep.Silence(-1)),
 		beep.Take(sr.N(300*time.Millisecond), Bass(82.41)),
+		beep.Take(sr.N(50*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(300*time.Millisecond), Bass(73.42)),
+		beep.Take(sr.N(50*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(300*time.Millisecond), Bass(55.00)),
+		beep.Take(sr.N(50*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(300*time.Millisecond), Bass(73.42)),
+		beep.Take(sr.N(50*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(300*time.Millisecond), Bass(87.31)),
+		beep.Take(sr.N(50*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(300*time.Millisecond), Bass(98.00)),
+		beep.Take(sr.N(50*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(300*time.Millisecond), Bass(87.31)),
+		beep.Take(sr.N(50*time.Millisecond), beep.Silence(-1)),
+		beep.Take(sr.N(650*time.Millisecond), Bass(65.41)),
 		beep.Take(sr.N(50*time.Millisecond), beep.Silence(-1)))
+
 }
 
 func SynthLoop(sr beep.SampleRate) beep.Streamer {
@@ -148,7 +177,6 @@ func PlayDrums() {
 	drumPlaying = true
 	drumLock.Unlock()
 
-	sr := InitSpeaker(sampleRate)
 	done := make(chan bool)
 
 	drumStream := beep.Seq(
@@ -172,12 +200,10 @@ func PlayDrums() {
 }
 
 func PlayBass() {
-	sr := InitSpeaker(sampleRate)
 	done := make(chan bool)
 
 	bassStream := beep.Seq(
 		BassLoop(sr),
-		beep.Take(sr.N(2800*time.Millisecond), beep.Silence(-1)),
 		BassLoop(sr))
 
     speaker.Play(beep.Seq(
@@ -188,7 +214,6 @@ func PlayBass() {
 }
 
 func PlaySynth() {
-	sr := InitSpeaker(sampleRate)
 	done := make(chan bool)
 
     synthStream := beep.Seq(
