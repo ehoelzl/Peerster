@@ -123,6 +123,7 @@ type GossipPacket struct {
 	TLCMessage    *TLCMessage
 	Ack           *TLCAck
 	PTPMessage	  *PTPMessage
+	DiscussionMessage *DiscussionMessage
 }
 
 func (sp *StatusPacket) PrintStatusMessage(sender *net.UDPAddr) {

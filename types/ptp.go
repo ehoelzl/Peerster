@@ -1,8 +1,6 @@
 package types
 
 import (
-	"crypto/sha256"
-	"github.com/ehoelzl/Peerster/utils"
 	"hash/fnv"
 	"log"
 	"net"
@@ -65,51 +63,7 @@ func (g *Gossiper) MasterTime() time.Time {
 
 
 func InitPTP(g *Gossiper){
-	//We wait for some messages to exchange so that the ptp is initiated with all peers
-	//We first send our name, which will help us decide each leader at each round
-	time.Sleep(2*time.Second)
-	gp := GossipPacket{PTPMessage:&PTPMessage{Name:&g.Name}}
-	g.Broadcast(&gp, nil)
-
-	//Save our local name
-	hash := sha256.Sum256([]byte(g.Name))
-	uid := utils.ToHex(hash[:])
-	g.PTP.Lock.Lock()
-	g.PTP.Peers[g.Name] = uid
-	g.PTP.Lock.Unlock()
-
-	//TODO : check for correctness here
-	//Wait for the name of the other peers
-	time.Sleep(3*time.Second)
-	log.Println("WAITED LONG ENOUGH, ELECTING..")
-
-	//Use the League of Entropy to elect the master clock
-	//In the normal PTP protocol normally the leader is the one with the most accurate clock. Since we will have the same hardware for each Jamster, we take a random leader
-	r, err := getRandomness()
-	if err != nil {
-		log.Println("Error getting the randomness")
-	}
-
-	//TODO : be sure that we have uniform consensus on the leader
-	//We have two ways to implement the rounds :  either round by round, process1,2,3,1,2,3 etc.. or use the randomness from the league of entropy to decide the leader at each round
-	var max uint32
-	var MASTER string
-	max = 0
-	log.Println("RANDOMNESS", HashToNumber(r.Point))
-	for k, v := range g.PTP.Peers {
-		mod := HashToNumber(v)%HashToNumber(r.Point)
-		if  mod > max {
-			max = mod
-			MASTER = k
-		}
-	}
-
-	//The master is saved, and starts the sync process
-	g.PTP.MASTER = MASTER
-	if MASTER == g.Name {
-		log.Println("INITIATED SYNC at", g.Name)
-		g.SendSYNC()
-	}
+	g.SendSYNC()
 }
 
 //Initiation at Master
@@ -124,31 +78,13 @@ func (g *Gossiper) SendSYNC() {
 
 //Generic function to handle ptp packets both at Master and Slave
 func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
-	//We received the name of another Jamster!
-	if ptp.Name != nil && ptp.T1 == nil {
-		//Check if we haven't recorded this peer already
-		if g.PTP.Peers[*ptp.Name] != "" {return}
-		//Lazy Broadcast
-		g.Broadcast(&GossipPacket{PTPMessage: ptp}, nil)
-		//Else we register a new ptp peer
-		hash := sha256.Sum256([]byte(*ptp.Name))
-		uid := utils.ToHex(hash[:])
-		g.PTP.Lock.Lock()
-		g.PTP.Peers[*ptp.Name] = uid
-		g.PTP.Lock.Unlock()
-	} else
 	//AT SLAVE : Record time at which we received the message from the master
 	if ptp.T1 != nil && ptp.Name != nil {
 		g.PTP.T1 = *ptp.T1
-
 		T2 := time.Now()
 		g.PTP.T2 = T2
-
-		nilP := PTPMessage{}
-		g.SendPacket(&GossipPacket{PTPMessage: &nilP}, from)
-
+		g.SendPacket(&GossipPacket{PTPMessage: &PTPMessage{}}, from)
 		g.PTP.T3 = time.Now()
-
 	} else
 	//AT MASTER : we received an empty ptp message from a slave. He is simply asking us when we received this message
 	if ptp.T1 == nil && ptp.Name == nil && ptp.T4 == nil{
