@@ -12,7 +12,7 @@ import (
 type Jam struct {
 	Lock sync.RWMutex
 	Jammers map[string]string
-	ACKS 	map[string]string
+	ACKS 	map[string]bool
 	Order 	[]string
 	NumberOfNodes uint64
 	PROPOSED bool
@@ -53,8 +53,6 @@ func InitPlay(g *Gossiper){
 		MASTER:  nil,
 	}
 	g.Broadcast(&GossipPacket{DiscussionMessage:&dm}, nil)
-	log.Println("SENDING MY NAME")
-
 }
 
 func (g *Gossiper) HandleDiscussion(from *net.UDPAddr, disc *DiscussionMessage) {
@@ -68,51 +66,69 @@ func (g *Gossiper) HandleDiscussion(from *net.UDPAddr, disc *DiscussionMessage) 
 	}
 
 	//First we merge the tables of participants
-	if disc.MASTER == nil && disc.Players != nil {
+	if disc.Players != nil {
+
+		//Return if we already have all participants
 		if len(g.Jam.Jammers) == int(g.Jam.NumberOfNodes) {return}
 
-		for k, v := range *disc.Players{
+		//Merge
+		for k, v := range *disc.Players {
 			if g.Jam.Jammers[k] == "" {
 				g.Jam.Jammers[k] = v
 			}
 		}
-		//If we modified it we broadcast our new table
+
+		//Broadcast our new table
 		dm := DiscussionMessage{
 			Players: &g.Jam.Jammers,
 			MASTER:  nil,
 		}
 		g.Broadcast(&GossipPacket{DiscussionMessage:&dm}, nil)
+
 	} else
 	if disc.Order != nil && g.Jam.PROPOSED == true && g.Name != g.Jam.MASTER {
 		g.Jam.Order = *disc.Order
-		log.Println("DECIDED", g.Jam.Order, "MASTER", g.Jam.Order[0], "My order", g.Name, g.GetMyOrder())
 		ack := &DiscussionMessage{From:&g.Name}
+		log.Println("DECIDED", g.Jam.Order, "MASTER", g.Jam.Order[0], "My order", g.Name, g.GetMyOrder())
 		g.SendPacket(&GossipPacket{DiscussionMessage:ack}, from)
-		//g.Broadcast(&GossipPacket{DiscussionMessage:ack}, nil)
+		//TODO : reset all fields to prepare for next round
 	} else
 	if disc.From != nil && g.Name == g.Jam.MASTER {
-		if g.Jam.ACKS[*disc.From] == "" {
-			g.Jam.ACKS[*disc.From] = "true"
+
+		//Add acks
+		if !g.Jam.ACKS[*disc.From]  {
+			g.Jam.ACKS[*disc.From] = true
 		}
 
+		//Received all acks
 		if len(g.Jam.ACKS) == int(g.Jam.NumberOfNodes) {
 			log.Println("RECEIVED ALL ACKS, ready to play using ptp")
+			go PlayPTP(g)
+			//TODO : reset all fields to prepare for next round
 		}
 
 	}
 }
 
 func (g *Gossiper) ProposeConsensus(){
-	log.Println("RECEIVED ALL JAMMERS NAME...")
+	//Use the League of Entropy to elect the master clock
+	//In the normal PTP protocol normally the leader is the one with the most accurate clock. Since we will have the same hardware for each Jamster, we take a random leader
+	r, err := getRandomness()
+	if err != nil {
+		log.Println("Error getting the randomness")
+	}
+
 	values := make([]int, 0)
 	for _, v := range g.Jam.Jammers {
-		values = append(values, int(HashToNumber(v)))
+		values = append(values, int(HashToNumber(v)%HashToNumber(r.Point)))
 	}
+
 	sort.Ints(values)
+
 	order := make([]string, 0)
 	for _, v := range values {
 		for name, hash := range g.Jam.Jammers {
-			if v == int(HashToNumber(hash)) {
+			if v == int(HashToNumber(hash)%HashToNumber(r.Point)) {
 				order = append(order, name)
 			}
 		}
@@ -121,8 +137,9 @@ func (g *Gossiper) ProposeConsensus(){
 	//decide
 	if order[0] == g.Name {
 		g.Jam.MASTER = g.Name
+		g.PTP.MASTER = g.Name
 		g.Jam.Order = order
-		g.Jam.ACKS[g.Name] = "true"
+		g.Jam.ACKS[g.Name] = true
 		log.Println("AT", g.Name,"DECIDED:", order)
 		proposition := &DiscussionMessage{Order:&order}
 		go g.Broadcast(&GossipPacket{DiscussionMessage: proposition}, nil)
@@ -131,7 +148,6 @@ func (g *Gossiper) ProposeConsensus(){
 	}
 
 }
-
 
 func (g *Gossiper) GetMyOrder() int {
 	//TODO : improve or add error
@@ -144,10 +160,4 @@ func (g *Gossiper) GetMyOrder() int {
 		}
 	}
 	return int(g.Jam.NumberOfNodes)+1
-}
-
-func (g *Gossiper) NameToNumber(name string) int{
-
-	return int(HashToNumber(g.Jam.Jammers[name]))
-
 }
