@@ -96,7 +96,6 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 
 		g.SendPacket(&GossipPacket{PTPMessage: &t4Packet}, from)
 
-		log.Println(time.Now())
 		time.Sleep(g.sleepDuration())
 
 		log.Println(g.Name, "STARTED PLAYING DRUMS")
@@ -122,7 +121,6 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 			g.PTP.CurrentDelta = offset
 			g.PTP.Unlock()
 		}
-		log.Println(time.Now())
 		time.Sleep(g.sleepDuration())
 
 		if g.GetMyOrder() == 1 {
@@ -143,10 +141,9 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 
 func (g *Gossiper) sleepDuration() time.Duration {
 	playTime := g.MasterTime().Truncate(5 * time.Second).Add(5 * time.Second)
-	log.Println(playTime)
-	log.Println(g.MasterTime())
+	log.Printf("Current master time %v\n", g.MasterTime())
 	duration := playTime.Sub(g.MasterTime())//g.MasterTime().Sub(playTime)
-	log.Printf("Waiting for %v \n", duration)
+	log.Printf("Start playing at %v, wait %v \n", playTime, duration)
 	return duration
 }
 
