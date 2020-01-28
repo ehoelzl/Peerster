@@ -34,7 +34,7 @@ func InitJamStruct(numNodes uint64, gossiperName string) *Jam {
 		Jammers:       	make(map[string]string),
 		NumberOfNodes: 	numNodes,
 		PROPOSED: 		false,
-		ACKS: 			make(map[string]string),
+		ACKS: 			make(map[string]bool),
 		Order: 			make([]string, 0),
 		MASTER:			"",
 	}

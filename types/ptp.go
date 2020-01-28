@@ -92,7 +92,9 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 		if g.Name != g.PTP.MASTER {return}
 		now := time.Now()
 		t4Packet := PTPMessage{T4: &now}
-		go g.SendPacket(&GossipPacket{PTPMessage: &t4Packet}, from)
+		g.SendPacket(&GossipPacket{PTPMessage: &t4Packet}, from)
+		//TODO @Louis : Play music here
+
 	} else if
 	//AT SLAVE sync is complete, we can compute the offset
 	ptp.T4 != nil {
@@ -112,6 +114,8 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 			log.Println("CLOCK DELAY at", g.Name, offset)
 		}
 
+		//TODO @Louis : Play music here
+
 		//We reset the values for the next round
 		g.PTP.T1 = time.Time{}
 		g.PTP.T2 = time.Time{}
@@ -125,25 +129,3 @@ func HashToNumber(s string) uint32 {
 	h.Write([]byte(s))
 	return h.Sum32()
 }
-
-
-
-
-
-
-
-
-
-
-
-
-/*
-	for len(g.PTP.Peers) != int(g.PTP.NumberOfNodes) {
-		duration, err := time.ParseDuration("0.1s")
-		if err != nil {
-			log.Println("Error with timer")
-		}
-		ticker := time.NewTicker(duration)
-		_ = ticker.C
-	}
-*/
