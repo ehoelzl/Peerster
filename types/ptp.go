@@ -121,7 +121,7 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 			g.PTP.CurrentDelta = offset
 			g.PTP.Unlock()
 		}
-
+		log.Println(time.Now())
 		time.Sleep(g.sleepDuration())
 
 		if g.GetMyOrder() == 1 {
