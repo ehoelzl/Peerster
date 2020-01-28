@@ -1,4 +1,5 @@
 package main
+/*
 import . "github.com/ehoelzl/Peerster/types"
 
 func main() {
@@ -6,3 +7,4 @@ func main() {
 	go PlayBass()
 	PlaySynth()
 }
+*/

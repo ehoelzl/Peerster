@@ -31,6 +31,7 @@ type Gossiper struct {
 	FullMatches     *FullMatches
 	TLC             *TLC
 	PTP 			*PTP
+	Jam				*Jam
 	stubbornTimeout uint64
 	hw3ex2          bool
 	hopLimit        uint32
@@ -76,6 +77,7 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		FullMatches:     InitFullMatches(),
 		TLC:             InitTLCStruct(numNodes, name),
 		PTP: 			 InitPTPStruct(numNodes),
+		Jam: 			InitJamStruct(numNodes, name),
 		stubbornTimeout: stubbornTimeout,
 		hw3ex2:          hw3ex2,
 		hopLimit:        hopLimit,
@@ -337,6 +339,9 @@ func (gp *Gossiper) HandleGossipPacket(from *net.UDPAddr, packetBytes []byte) {
 			gp.HandleTLCAck(from, ack)
 		} else if ptp := packet.PTPMessage; ptp != nil {
 			gp.HandlePTP(from, ptp)
+		} else if disc := packet.DiscussionMessage; disc != nil {
+			//log.Println("NEW DISCUSSION MESSAGE AT", gp.Name)
+			gp.HandleDiscussion(from, disc)
 		} else {
 			log.Printf("Empty packet from %v\n", from.String())
 			return

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"log"
 	"time"
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/speaker"
@@ -174,6 +175,7 @@ func PlayDrums() {
 		drumLock.Unlock()
 		return
 	}
+	log.Println("HELLOW")
 	drumPlaying = true
 	drumLock.Unlock()
 
