@@ -185,10 +185,6 @@ func PlayDrums() {
 		DrumLoop(sr),
 		DrumLoop(sr),
 		DrumLoop(sr),
-		DrumLoop(sr),
-		DrumLoop(sr),
-		DrumLoop(sr),
-		DrumLoop(sr),
 		DrumLoop(sr))
 
     speaker.Play(beep.Seq(

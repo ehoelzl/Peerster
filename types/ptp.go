@@ -97,7 +97,7 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 
 		g.SendPacket(&GossipPacket{PTPMessage: &t4Packet}, from)
 
-		time.Sleep(1*time.Second)
+		time.Sleep(g.sleepDuration())
 
 		log.Println(g.Name, "STARTED PLAYING DRUMS")
 		PlayDrums()
@@ -120,7 +120,7 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 			log.Println("CLOCK DELAY at", g.Name, offset)
 		}
 
-		time.Sleep(1*time.Second - offset)
+		time.Sleep(g.sleepDuration() - offset)
 
 		if g.GetMyOrder() == 1 {
 			log.Println(g.Name, "STARTED PLAYING BASS")
@@ -136,6 +136,11 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 		g.PTP.T3 = time.Time{}
 		g.PTP.T4 = time.Time{}
 	}
+}
+
+func (g *Gossiper) sleepDuration() time.Duration {
+	playTime := g.MasterTime().Truncate(5 * time.Second).Add(5 * time.Second)
+	return g.MasterTime().Sub(playTime)
 }
 
 func HashToNumber(s string) uint32 {
