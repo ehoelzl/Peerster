@@ -96,6 +96,7 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 
 		g.SendPacket(&GossipPacket{PTPMessage: &t4Packet}, from)
 
+		log.Println(time.Now())
 		time.Sleep(g.sleepDuration())
 
 		log.Println(g.Name, "STARTED PLAYING DRUMS")
