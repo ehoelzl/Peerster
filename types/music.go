@@ -108,7 +108,7 @@ func Kick() beep.Streamer {
 	attack := 0.0
 	sustain := 0.1
 	release := 0.05
-	cutoff := 250.0
+	cutoff := 1000.0
 	resonance := 0.3
 
 	a1, a2, a3, b1, b2 := LowPass(cutoff, resonance)
