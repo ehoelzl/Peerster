@@ -56,8 +56,6 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 	gossipConn, err := net.ListenUDP("udp4", gossipAddr)
 	utils.CheckFatalError(err, fmt.Sprintf("Error when opening gossip UDP channel for %v\n", name))
 
-	randomness, err := getRandomness()
-	utils.CheckFatalError(err, fmt.Sprintf("Error getting randomness"))
 
 	log.Printf("Starting gossiper %v\n UIAddress: %v\n GossipAddress %v\n Peers %v\n\n", name, clientAddr, gossipAddr, initialPeers)
 	//log.Printf("Randomness is %v", randomness.Point)
@@ -85,7 +83,6 @@ func NewGossiper(uiAddress, gossipAddress, name string, initialPeers string, sim
 		ackAll:          ackAll,
 		hw3ex4:          hw3ex4,
 		QSC:             InitQSCStruct(),
-		Randomness:      randomness,
 	}
 
 	// AntiEntropy timer

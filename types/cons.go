@@ -113,14 +113,11 @@ func (g *Gossiper) HandleDiscussion(from *net.UDPAddr, disc *DiscussionMessage) 
 func (g *Gossiper) ProposeConsensus(){
 	//Use the League of Entropy to elect the master clock
 	//In the normal PTP protocol normally the leader is the one with the most accurate clock. Since we will have the same hardware for each Jamster, we take a random leader
-	r, err := getRandomness()
-	if err != nil {
-		log.Println("Error getting the randomness")
-	}
+	r := getRandomnessETH()
 
 	values := make([]int, 0)
 	for _, v := range g.Jam.Jammers {
-		values = append(values, int(HashToNumber(v)%HashToNumber(r.Point)))
+		values = append(values, int(HashToNumber(v)%HashToNumber(r)))
 	}
 
 	sort.Ints(values)
@@ -128,7 +125,7 @@ func (g *Gossiper) ProposeConsensus(){
 	order := make([]string, 0)
 	for _, v := range values {
 		for name, hash := range g.Jam.Jammers {
-			if v == int(HashToNumber(hash)%HashToNumber(r.Point)) {
+			if v == int(HashToNumber(hash)%HashToNumber(r)) {
 				order = append(order, name)
 			}
 		}
