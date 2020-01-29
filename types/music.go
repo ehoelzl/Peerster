@@ -1,12 +1,15 @@
 package types
 
 import (
+	"github.com/faiface/beep/mp3"
+	"os"
 	"time"
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/speaker"
 	"math/rand"
 	"math"
 	"sync"
+	"log"
 )
 
 const kickFreq float64 = 22
@@ -374,4 +377,21 @@ func PlaySynth() {
 		beep.Callback(func() { done <- true })))
 
 	<-done
+}
+
+
+
+func PlayJingle() {
+	f, err := os.Open("xp.mp3")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	streamer, format, err := mp3.Decode(f)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer streamer.Close()
+	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
+	speaker.Play(streamer)
 }
