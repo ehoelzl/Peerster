@@ -14,7 +14,6 @@ const Ticker_PTP  = 14
 type PTP struct {
 	Peers         map[string]string
 	NumberOfNodes uint64
-	Lock          sync.RWMutex
 	MASTER        string
 	SECOND		  string
 	Randomness	  uint32
@@ -23,6 +22,7 @@ type PTP struct {
 	T3 			  time.Time
 	T4 			  time.Time
 	CurrentDelta  time.Duration
+	sync.RWMutex
 }
 
 type PTPMessage struct {
@@ -35,7 +35,6 @@ func InitPTPStruct(numNodes uint64) *PTP {
 	ptp := PTP {
 		Peers:         make(map[string]string),
 		NumberOfNodes: numNodes,
-		Lock:          sync.RWMutex{},
 		CurrentDelta:  0,
 	}
 	return &ptp
@@ -113,13 +112,15 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 		//Avoid time underflow
 		if offset < 1*time.Microsecond {
 			log.Println("CLOCK DELAY at", g.Name, "<1µs")
-			g.PTP.Lock.Lock()
+			g.PTP.Lock()
 			g.PTP.CurrentDelta = 1*time.Microsecond
-			g.PTP.Lock.Unlock()
+			g.PTP.Unlock()
 		} else {
 			log.Println("CLOCK DELAY at", g.Name, offset)
+			g.PTP.Lock()
+			g.PTP.CurrentDelta = offset
+			g.PTP.Unlock()
 		}
-
 		time.Sleep(g.sleepDuration())
 
 		if g.GetMyOrder() == 1 {
@@ -140,7 +141,10 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 
 func (g *Gossiper) sleepDuration() time.Duration {
 	playTime := g.MasterTime().Truncate(5 * time.Second).Add(5 * time.Second)
-	return g.MasterTime().Sub(playTime)
+	log.Printf("Current master time %v\n", g.MasterTime())
+	duration := playTime.Sub(g.MasterTime())//g.MasterTime().Sub(playTime)
+	log.Printf("Start playing at %v, wait %v \n", playTime, duration)
+	return duration
 }
 
 func HashToNumber(s string) uint32 {
