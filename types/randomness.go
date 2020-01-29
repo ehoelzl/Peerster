@@ -1,12 +1,31 @@
 package types
 
 import (
+	"log"
 	"os"
 	"net/http"
 	"io/ioutil"
 	"encoding/json"
 	"errors"
 )
+
+
+
+type ETHINFO struct {
+	Name             string    `json:"name"`
+	Height           int       `json:"height"`
+	Hash             string    `json:"hash"`
+	LatestURL        string    `json:"latest_url"`
+	PreviousHash     string    `json:"previous_hash"`
+	PreviousURL      string    `json:"previous_url"`
+	PeerCount        int       `json:"peer_count"`
+	UnconfirmedCount int       `json:"unconfirmed_count"`
+	HighGasPrice     int64     `json:"high_gas_price"`
+	MediumGasPrice   int64     `json:"medium_gas_price"`
+	LowGasPrice      int64     `json:"low_gas_price"`
+	LastForkHeight   int       `json:"last_fork_height"`
+	LastForkHash     string    `json:"last_fork_hash"`
+}
 
 type Randomness struct {
 	Round float64
@@ -55,3 +74,19 @@ func getRandomness() (*Randomness, error) {
 	randomness := Randomness{Round: round, Point: point}
 	return &randomness, nil
 }
+
+
+
+func getRandomnessETH()(hash string){
+	resp, err := http.Get("https://api.blockcypher.com/v1/eth/main")
+	if err != nil {
+		log.Println("Error with the blockcypher api, use another source of randomness")
+	}
+	defer resp.Body.Close()
+	eth := ETHINFO{}
+	json.NewDecoder(resp.Body).Decode(&eth)
+	return eth.Hash
+}
+
+
+
