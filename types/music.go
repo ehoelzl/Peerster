@@ -1,7 +1,6 @@
 package types
 
 import (
-	"log"
 	"time"
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/speaker"
@@ -10,10 +9,9 @@ import (
 	"sync"
 )
 
-const amplitude float64 = 0.1
 const kickFreq float64 = 22
 const hiHatFreq float64 = 1174.66
-const bassAmplitude float64 = 0.6
+const bassAmplitude float64 = 0.1
 const synthAmplitude float64 = 0.4
 const sampleRate float64 = 44100
 
@@ -22,20 +20,75 @@ var drumLock = &sync.Mutex{}
 
 var sr = InitSpeaker(sampleRate)
 
+func LowPass(cutoff, resonance float64) (a1, a2, a3, b1, b2 float64) {
+	// c = 1.0f / (float)Math.Tan(Math.PI * frequency / sampleRate);
+	c := 1.0 / math.Tan(math.Pi * cutoff / sampleRate)
+	// a1 = 1.0f / (1.0f + resonance * c + c * c);
+	a1 = 1.0 / (1.0 + resonance * c + c * c)
+	// a2 = 2f * a1;
+	a2 = 2.0 * a1
+	// a3 = a1;
+	a3 = a1
+	// b1 = 2.0f * (1.0f - c * c) * a1;
+	b1 = 2.0 * (1.0 - c * c) * a1
+	// b2 = (1.0f - resonance * c + c * c) * a1;
+	b2 = (1.0 - resonance * c + c * c) * a1
+	return a1, a2, a3, b1, b2
+}
+
 func Bass(freq float64) beep.Streamer {
 	var inc float64 = 0
+	attack := 0.01
+	sustain := 0.22
+	release := 0.1
+	resonance := 0.3
+	cutoff := 2800.0
+
+	a1, a2, a3, b1, b2 := LowPass(cutoff, resonance)
+
+	v_1 := 0.0
+	v_2 := 0.0
+	o_1 := 0.0
+	o_2 := 0.0
+
 	return beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
 		for i := range samples {
-			samples[i][0] = bassAmplitude * math.Abs(math.Sin((2 * math.Pi * inc * freq) / sampleRate))
-			samples[i][1] = bassAmplitude * math.Abs(math.Sin((2 * math.Pi * inc * freq) / sampleRate))
+
+			var amp float64
+			if inc < sampleRate * attack {
+				amp = inc * 1 / (attack * sampleRate)
+			} else if inc < sampleRate * (sustain + attack) {
+				amp = 1.0
+			} else if inc < sampleRate * (sustain + attack + release) {
+				amp = (inc - sampleRate * (sustain + attack)) * -1 / (release * sampleRate) + 1
+			} else {
+				amp = 0
+			}
+
+			// value := math.Abs(math.Sin((2 * math.Pi * inc * freq) / sampleRate))
+			value := math.Mod(((2 * inc * freq) / sampleRate), 2) - 1
+
+			v := (value * amp * bassAmplitude)
+			s_curr := a1 * v + a2 * v_1 + a3 * v_2 - b1 * o_1 - b2 * o_2
+
+			samples[i][0] = s_curr
+			samples[i][1] = s_curr
+
+			v_2 = v_1
+			v_1 = v
+			o_2 = o_1
+			o_1 = s_curr
+
 			inc++
 		}
 		return len(samples), true
 	})
 }
-
+			
 func Synth(freq1 float64, freq2 float64, freq3 float64) beep.Streamer {
 	var inc float64 = 0
+
+
 	return beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
 		for i := range samples {
 			samples[i][0] = 0.33 * synthAmplitude * (math.Sin((2 * math.Pi * inc * freq1) / sampleRate)) +
@@ -52,14 +105,50 @@ func Synth(freq1 float64, freq2 float64, freq3 float64) beep.Streamer {
 
 func Kick() beep.Streamer {
 	var inc float64 = 1
+	attack := 0.0
+	sustain := 0.1
+	release := 0.05
+	cutoff := 1000.0
+	resonance := 0.3
+
+	a1, a2, a3, b1, b2 := LowPass(cutoff, resonance)
+
+	v_1 := 0.0
+	v_2 := 0.0
+	o_1 := 0.0
+	o_2 := 0.0
+
 	return beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
 		for i := range samples {
-			amplitude := 0.4
+
+			var amp float64
+			if inc < sampleRate * attack {
+				amp = inc * 1 / (attack * sampleRate)
+			} else if inc < sampleRate * (sustain + attack) {
+				amp = 1.0
+			} else if inc < sampleRate * (sustain + attack + release) {
+				amp = (inc - sampleRate * (sustain + attack)) * -1 / (release * sampleRate) + 1
+			} else {
+				amp = 0
+			}
+
+			amplitude := 0.5
 			value := math.Abs(math.Sin((2 * math.Pi * inc * kickFreq) / sampleRate))
-			// shape := math.Sqrt(0.1 / math.Pow((inc / sampleRate), 2))
-			shape := 1 - (4 * inc / sampleRate)
-			samples[i][0] = (value * 2 - 1) * shape * amplitude
-			samples[i][1] = (value * 2 - 1) * shape * amplitude
+
+			v := (value * 2 - 1) * amplitude * amp
+
+			// COMPLEX METHOD
+			// float newOutput = a1 * newInput + a2 * this.inputHistory[0] + a3 * this.inputHistory[1] - b1 * this.outputHistory[0] - b2 * this.outputHistory[1];
+			s_curr := a1 * v + a2 * v_1 + a3 * v_2 - b1 * o_1 - b2 * o_2
+
+			samples[i][0] = s_curr
+			samples[i][1] = s_curr
+
+			v_2 = v_1
+			v_1 = v
+			o_2 = o_1
+			o_1 = s_curr
+
 			inc++
 		}
 		return len(samples), true
@@ -68,13 +157,38 @@ func Kick() beep.Streamer {
 
 func Snare() beep.Streamer {
 	var inc float64 = 1
+	amplitude := 0.2
+	cutoff := 3800.0
+	resonance := 0.8
+	
+	a1, a2, a3, b1, b2 := LowPass(cutoff, resonance)
+	
+	v_1 := 0.0
+	v_2 := 0.0
+	o_1 := 0.0
+	o_2 := 0.0
+
+
 	return beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
 		for i := range samples {
 			value := rand.Float64()
 			shape := 1.0 // math.Sqrt(1 / math.Pow((inc / sampleRate), 2))
-			shape = 1 - (2 * inc / sampleRate)
-			samples[i][0] = (value * 2 - 1) * shape * amplitude
-			samples[i][1] = (value * 2 - 1) * shape * amplitude
+			shape = 1 - (3 * inc / sampleRate)
+
+			// COMPLEX METHOD
+			// float newOutput = a1 * newInput + a2 * this.inputHistory[0] + a3 * this.inputHistory[1] - b1 * this.outputHistory[0] - b2 * this.outputHistory[1];
+			v := (value * 2 - 1) * shape * amplitude
+
+			s_curr := a1 * v + a2 * v_1 + a3 * v_2 - b1 * o_1 - b2 * o_2
+
+			samples[i][0] = s_curr
+			samples[i][1] = s_curr
+
+			v_2 = v_1
+			v_1 = v
+			o_2 = o_1
+			o_1 = s_curr
+
 			inc++
 		}
 		return len(samples), true
@@ -83,13 +197,38 @@ func Snare() beep.Streamer {
 
 func HiHat() beep.Streamer {
 	var inc float64 = 1
+	amplitude := 0.2
+	cutoff := 2200.0
+	resonance := 0.1
+
+	a1, a2, a3, b1, b2 := LowPass(cutoff, resonance)
+
+	v_1 := 0.0
+	v_2 := 0.0
+	o_1 := 0.0
+	o_2 := 0.0
+
 	return beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
 		for i := range samples {
 			shape := 1.0 // math.Sqrt(1 / math.Pow((inc / sampleRate), 2))
 			shape = 1 - (20 * inc / sampleRate)
-			samples[i][0] = amplitude * shape * (rand.Float64() * 2 - 1)
-			samples[i][1] = amplitude * shape * (rand.Float64() * 2 - 1)
+
+			v := amplitude * shape * (rand.Float64() * 2 - 1)
+
+			// COMPLEX METHOD
+			// float newOutput = a1 * newInput + a2 * this.inputHistory[0] + a3 * this.inputHistory[1] - b1 * this.outputHistory[0] - b2 * this.outputHistory[1];
+			s_curr := a1 * v + a2 * v_1 + a3 * v_2 - b1 * o_1 - b2 * o_2
+
+			samples[i][0] = s_curr
+			samples[i][1] = s_curr
+
+			v_2 = v_1
+			v_1 = v
+			o_2 = o_1
+			o_1 = s_curr
+
 			inc++
+
 		}
 		return len(samples), true
 	})
@@ -103,11 +242,15 @@ func InitSpeaker(sampleRate float64) beep.SampleRate {
 
 func DrumLoop(sr beep.SampleRate) beep.Streamer {
 	return beep.Seq(
-		beep.Take(sr.N(250*time.Millisecond), Kick()),
+		beep.Mix(
+			beep.Take(sr.N(250*time.Millisecond), Kick()),
+			beep.Take(sr.N(50*time.Millisecond), HiHat())),
 		beep.Take(sr.N(100*time.Millisecond), beep.Silence(-1)),
 		beep.Take(sr.N(50*time.Millisecond), HiHat()),
 		beep.Take(sr.N(300*time.Millisecond), beep.Silence(-1)),
-		beep.Take(sr.N(250*time.Millisecond), Snare()),
+		beep.Mix(
+			beep.Take(sr.N(250*time.Millisecond), Snare()),
+			beep.Take(sr.N(50*time.Millisecond), HiHat())),
 		beep.Take(sr.N(100*time.Millisecond), beep.Silence(-1)),
 		beep.Take(sr.N(50*time.Millisecond), HiHat()),
 		beep.Take(sr.N(125*time.Millisecond), beep.Silence(-1)),
@@ -117,7 +260,9 @@ func DrumLoop(sr beep.SampleRate) beep.Streamer {
 		beep.Take(sr.N(175*time.Millisecond), Kick()),
 		beep.Take(sr.N(50*time.Millisecond), HiHat()),
 		beep.Take(sr.N(300*time.Millisecond), beep.Silence(-1)),
-		beep.Take(sr.N(250*time.Millisecond), Snare()),
+		beep.Mix(
+			beep.Take(sr.N(250*time.Millisecond), Snare()),
+			beep.Take(sr.N(50*time.Millisecond), HiHat())),
 		beep.Take(sr.N(100*time.Millisecond), beep.Silence(-1)),
 		beep.Take(sr.N(50*time.Millisecond), HiHat()),
 		beep.Take(sr.N(300*time.Millisecond), beep.Silence(-1)))
@@ -175,7 +320,9 @@ func PlayDrums() {
 		drumLock.Unlock()
 		return
 	}
-	log.Println("HELLOW")
+
+	speaker.Clear()
+
 	drumPlaying = true
 	drumLock.Unlock()
 
@@ -198,6 +345,8 @@ func PlayDrums() {
 }
 
 func PlayBass() {
+	speaker.Clear()
+
 	done := make(chan bool)
 
 	bassStream := beep.Seq(
@@ -212,6 +361,8 @@ func PlayBass() {
 }
 
 func PlaySynth() {
+	speaker.Clear()
+
 	done := make(chan bool)
 
     synthStream := beep.Seq(
