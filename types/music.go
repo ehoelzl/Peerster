@@ -21,7 +21,6 @@ const sampleRate float64 = 44100
 var drumPlaying = false
 var drumLock = &sync.Mutex{}
 
-var sr = InitSpeaker(sampleRate)
 
 func LowPass(cutoff, resonance float64) (a1, a2, a3, b1, b2 float64) {
 	// c = 1.0f / (float)Math.Tan(Math.PI * frequency / sampleRate);
@@ -324,6 +323,8 @@ func PlayDrums() {
 		return
 	}
 
+	speaker.Close()
+	sr := InitSpeaker(sampleRate)
 	speaker.Clear()
 
 	drumPlaying = true
@@ -348,6 +349,8 @@ func PlayDrums() {
 }
 
 func PlayBass() {
+	speaker.Close()
+	sr := InitSpeaker(sampleRate)
 	speaker.Clear()
 
 	done := make(chan bool)
@@ -364,6 +367,8 @@ func PlayBass() {
 }
 
 func PlaySynth() {
+	speaker.Close()
+	sr := InitSpeaker(sampleRate)
 	speaker.Clear()
 
 	done := make(chan bool)
@@ -379,10 +384,8 @@ func PlaySynth() {
 	<-done
 }
 
-
-
 func PlayJingle() {
-	f, err := os.Open("xp.mp3")
+	f, err := os.Open("./frontend/xp.mp3")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -392,6 +395,10 @@ func PlayJingle() {
 		log.Fatal(err)
 	}
 	defer streamer.Close()
+	done := make(chan bool)
 	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
-	speaker.Play(streamer)
+	speaker.Play(beep.Seq(
+		streamer,
+		beep.Callback(func() { done <- true })))
+	<-done
 }
