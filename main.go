@@ -56,7 +56,7 @@ func main() {
 		go NewServer(*uiPort, gp)
 		go StartGossipListener(gp)
 		go InitPlay(gp)
-		//go PlayJingle()
+		go PlayJingle()
 		StartClientListener(gp)
 	}
 }

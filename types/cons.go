@@ -116,7 +116,7 @@ func (g *Gossiper) ProposeConsensus(){
 
 	values := make([]int, 0)
 	for _, v := range g.Jam.Jammers {
-		values = append(values, int(HashToNumber(v)%HashToNumber(r)))
+		values = append(values, int(HashToNumber(v)%(HashToNumber(r)/100000)))
 	}
 	sort.Ints(values)
 
@@ -125,7 +125,7 @@ func (g *Gossiper) ProposeConsensus(){
 	order := make([]string, 0)
 	for _, v := range values {
 		for name, hash := range g.Jam.Jammers {
-			if v == int(HashToNumber(hash)%HashToNumber(r)) {
+			if v == int(HashToNumber(hash)%(HashToNumber(r)/100000)) {
 				order = append(order, name)
 			}
 		}
