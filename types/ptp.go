@@ -94,6 +94,10 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 		now := time.Now()
 		t4Packet := PTPMessage{T4: &now}
 
+		g.PTP.Lock()
+		g.PTP.CurrentDelta = 0*time.Microsecond
+		g.PTP.Unlock()
+
 		g.SendPacket(&GossipPacket{PTPMessage: &t4Packet}, from)
 
 		time.Sleep(g.sleepDuration())
@@ -130,17 +134,20 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 			log.Println(g.Name, "STARTED PLAYING SYNTH")
 			PlaySynth()
 		}
-
-		//We reset the values for the next round
-		g.PTP.T1 = time.Time{}
-		g.PTP.T2 = time.Time{}
-		g.PTP.T3 = time.Time{}
-		g.PTP.T4 = time.Time{}
 	}
+
+	g.PTP.Lock()
+	//We reset the values for the next round
+	g.PTP.T1 = time.Time{}
+	g.PTP.T2 = time.Time{}
+	g.PTP.T3 = time.Time{}
+	g.PTP.T4 = time.Time{}
+	g.PTP.Unlock()
 }
 
 func (g *Gossiper) sleepDuration() time.Duration {
-	playTime := g.MasterTime().Truncate(5 * time.Second).Add(5 * time.Second)
+	//playTime := g.MasterTime().Truncate(5 * time.Second).Add(5 * time.Second)
+	playTime := g.MasterTime().Add(5 * time.Second)
 	log.Printf("Current master time %v\n", g.MasterTime())
 	duration := playTime.Sub(g.MasterTime()) // g.MasterTime().Sub(playTime)
 	log.Printf("Start playing at %v, wait %v \n", playTime, duration)
