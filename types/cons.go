@@ -16,9 +16,6 @@ type Jam struct {
 	Order 	[]string
 	NumberOfNodes uint64
 	PROPOSED bool
-	MASTER string
-
-
 }
 
 type DiscussionMessage struct {
@@ -36,7 +33,6 @@ func InitJamStruct(numNodes uint64, gossiperName string) *Jam {
 		PROPOSED: 		false,
 		ACKS: 			make(map[string]bool),
 		Order: 			make([]string, 0),
-		MASTER:			"",
 	}
 	//Save our local name
 	hash := sha256.Sum256([]byte(gossiperName))
@@ -86,14 +82,14 @@ func (g *Gossiper) HandleDiscussion(from *net.UDPAddr, disc *DiscussionMessage) 
 		g.Broadcast(&GossipPacket{DiscussionMessage:&dm}, nil)
 
 	} else
-	if disc.Order != nil && g.Jam.PROPOSED == true && g.Name != g.Jam.MASTER {
+	if disc.Order != nil && g.Jam.PROPOSED == true && g.Name != g.PTP.MASTER {
 		g.Jam.Order = *disc.Order
 		ack := &DiscussionMessage{From:&g.Name}
 		log.Println("DECIDED", g.Jam.Order, "MASTER", g.Jam.Order[0], "My order", g.Name, g.GetMyOrder())
 		g.SendPacket(&GossipPacket{DiscussionMessage:ack}, from)
 		//TODO : reset all fields to prepare for next round
 	} else
-	if disc.From != nil && g.Name == g.Jam.MASTER {
+	if disc.From != nil && g.Name == g.PTP.MASTER {
 
 		//Add acks
 		if !g.Jam.ACKS[*disc.From]  {
@@ -111,16 +107,20 @@ func (g *Gossiper) HandleDiscussion(from *net.UDPAddr, disc *DiscussionMessage) 
 }
 
 func (g *Gossiper) ProposeConsensus(){
+
 	//Use the League of Entropy to elect the master clock
 	//In the normal PTP protocol normally the leader is the one with the most accurate clock. Since we will have the same hardware for each Jamster, we take a random leader
 	r := getRandomnessETH()
+
+	log.Println("RANDOMNESS", r)
 
 	values := make([]int, 0)
 	for _, v := range g.Jam.Jammers {
 		values = append(values, int(HashToNumber(v)%HashToNumber(r)))
 	}
-
 	sort.Ints(values)
+
+	log.Println("VALUES", values)
 
 	order := make([]string, 0)
 	for _, v := range values {
@@ -133,11 +133,10 @@ func (g *Gossiper) ProposeConsensus(){
 
 	//decide
 	if order[0] == g.Name {
-		g.Jam.MASTER = g.Name
 		g.PTP.MASTER = g.Name
 		g.Jam.Order = order
 		g.Jam.ACKS[g.Name] = true
-		log.Println("AT", g.Name,"DECIDED:", order)
+		log.Println("AT", g.Name,"DECIDED:", g.Jam.Order)
 		proposition := &DiscussionMessage{Order:&order}
 		go g.Broadcast(&GossipPacket{DiscussionMessage: proposition}, nil)
 	} else {

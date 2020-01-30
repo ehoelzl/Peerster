@@ -10,8 +10,8 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"time"
 	"strconv"
+	"time"
 )
 
 type Server struct {
@@ -82,7 +82,7 @@ func (s *Server) GetIdHandler(w http.ResponseWriter, r *http.Request) {
 	response := make(map[string]string)
 	response["gossipAddress"] = s.Gossiper.GossipAddress.String()
 	response["name"] = s.Gossiper.Name
-	response["randomnessRound"] = strconv.FormatFloat(s.Gossiper.Randomness.Round, 'f', -1, 64)
+	response["randomnessRound"] = strconv.FormatUint(uint64(HashToNumber(s.Gossiper.Randomness)), 10)
 	jsonString, _ := json.Marshal(response)
 
 	_, err := io.WriteString(w, string(jsonString))
