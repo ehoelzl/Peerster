@@ -142,7 +142,7 @@ func (g *Gossiper) HandlePTP(from  *net.UDPAddr, ptp *PTPMessage) {
 func (g *Gossiper) sleepDuration() time.Duration {
 	playTime := g.MasterTime().Truncate(5 * time.Second).Add(5 * time.Second)
 	log.Printf("Current master time %v\n", g.MasterTime())
-	duration := playTime.Sub(g.MasterTime())//g.MasterTime().Sub(playTime)
+	duration := g.MasterTime().Sub(playTime)
 	log.Printf("Start playing at %v, wait %v \n", playTime, duration)
 	return duration
 }
